@@ -196,7 +196,10 @@ def api(
             # headers with just Content-Type, dropping any user -H values. Passing
             # an already-encoded str keeps our headers intact.
             body = json.dumps(fields)
-            request_headers.setdefault("Content-Type", "application/json")
+            # Only default Content-Type if the user didn't set it under any casing;
+            # a case-sensitive setdefault would emit a duplicate header.
+            if not any(k.lower() == "content-type" for k in request_headers):
+                request_headers["Content-Type"] = "application/json"
 
     try:
         ce = RSConnectExecutor(

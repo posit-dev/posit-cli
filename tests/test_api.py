@@ -86,6 +86,17 @@ def test_explicit_content_type_not_overridden(runner):
     assert request.call_args.kwargs["headers"]["Content-Type"] == "application/custom"
 
 
+def test_lowercase_content_type_not_duplicated(runner):
+    _, request, _ = _invoke(
+        runner, ["v1/content", "-f", "name=app", "-H", "content-type: application/custom"]
+    )
+    headers = request.call_args.kwargs["headers"]
+    # No duplicate Content-Type added under a different casing.
+    ct_keys = [k for k in headers if k.lower() == "content-type"]
+    assert ct_keys == ["content-type"]
+    assert headers["content-type"] == "application/custom"
+
+
 def test_fields_on_get_become_query_params(runner):
     _, request, _ = _invoke(runner, ["v1/content", "-X", "GET", "-f", "q=foo"])
     assert request.call_args.args[0] == "GET"
