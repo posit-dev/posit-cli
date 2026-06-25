@@ -28,6 +28,18 @@ $ posit connect api "v1/content?limit=3" -q '.[].name'
 `-q`/`--jq` runs the response through [jq](https://jqlang.github.io/jq/), like
 `gh api --jq`: string results print unquoted, one per line.
 
+### Query parameters vs. request body
+
+Like `gh api`, `-f`/`-F` fields default to a **POST request body** (adding any
+field flips the method to POST unless you pass `-X`). To send **query
+parameters** on a read, put them in the path or force `GET`:
+
+```console
+$ posit connect api "v1/content?owner_guid=...&limit=10"   # query params in the path
+$ posit connect api v1/content -X GET -f limit=10          # or force GET
+$ posit connect api v1/content -f name=my-app              # POST body (creates content)
+```
+
 ## Installation
 
 ```console

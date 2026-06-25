@@ -218,6 +218,32 @@ def test_non_2xx_response_exits_nonzero(runner):
     assert "nope" in result.output
 
 
+def test_implicit_post_4xx_hints_query_params(runner):
+    # gh parity: bare -f implies POST. When that POST 4xxs, nudge toward query
+    # params (the common cause is using -f to filter a read).
+    err = _http_response(status=400, reason="Bad Request", body=json.dumps({"error": "unknown field"}))
+    result, _, _ = _invoke(runner, ["v1/content", "-f", "limit=2"], request_return=err)
+    assert result.exit_code == 1
+    assert "-X GET" in result.output
+    assert "?key=value" in result.output
+
+
+def test_explicit_method_4xx_omits_hint(runner):
+    # If the user chose the method, the implicit-POST hint would be noise.
+    err = _http_response(status=400, reason="Bad Request", body=json.dumps({"error": "nope"}))
+    result, _, _ = _invoke(runner, ["v1/content", "-X", "POST", "-f", "name=x"], request_return=err)
+    assert result.exit_code == 1
+    assert "query parameters" not in result.output
+
+
+def test_implicit_post_5xx_omits_hint(runner):
+    # A server error isn't the user's field/method mistake; don't misdirect them.
+    err = _http_response(status=500, reason="Server Error", body="")
+    result, _, _ = _invoke(runner, ["v1/content", "-f", "limit=2"], request_return=err)
+    assert result.exit_code == 1
+    assert "query parameters" not in result.output
+
+
 def test_2xx_no_content_is_success(runner):
     # finding 1: a 204 comes back as an HTTPResponse with no JSON body; it must
     # be treated as success, not an error.

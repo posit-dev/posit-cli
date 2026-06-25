@@ -241,10 +241,15 @@ def api(
     except RSConnectException as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit(result, jq_program)
+    # Like gh, bare -f/-F fields imply POST and are sent as a JSON body. A common
+    # mistake is reaching for them to filter a GET list, which Connect rejects as
+    # an unknown body field. Only when the POST was *implicit* (no -X) does a 4xx
+    # warrant nudging the user toward query params.
+    fields_implied_post = method is None and bool(fields)
+    _emit(result, jq_program, query_param_hint=fields_implied_post)
 
 
-def _emit(result: Any, jq_program: Any = None) -> None:
+def _emit(result: Any, jq_program: Any = None, query_param_hint: bool = False) -> None:
     """Print the response body, or surface an error and exit non-zero.
 
     RSConnectClient unwraps a 2xx JSON body to a dict/list/scalar, but returns a
@@ -253,7 +258,8 @@ def _emit(result: Any, jq_program: Any = None) -> None:
     ``HTTPResponse`` must be classified by status, not treated as failure.
 
     ``jq_program`` (when given) filters a *successful* JSON body before printing;
-    error responses are never filtered.
+    error responses are never filtered. ``query_param_hint`` adds a nudge toward
+    query params when an implicit-POST request fails with a client error.
     """
     if not isinstance(result, HTTPResponse):
         # Already-decoded 2xx JSON body.
@@ -277,7 +283,14 @@ def _emit(result: Any, jq_program: Any = None) -> None:
         header = "request failed"
 
     body = _dumps(payload) if payload not in (None, "") else ""
-    click.echo(f"{header}\n{body}".rstrip(), err=True)
+    message = f"{header}\n{body}".rstrip()
+    if query_param_hint and status is not None and 400 <= status < 500:
+        message += (
+            "\n\nNote: -f/-F fields were sent as a JSON body (they imply POST). "
+            "For query parameters on a read, use '-X GET' or put them in the "
+            'path: api "<path>?key=value".'
+        )
+    click.echo(message, err=True)
     raise SystemExit(1)
 
 
