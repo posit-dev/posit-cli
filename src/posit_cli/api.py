@@ -8,10 +8,11 @@ picks OAuth ``Bearer`` vs API-``Key`` auth, and auto-refreshes OAuth tokens on
 
 import json
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import click
 from rsconnect.api import RSConnectExecutor, RSConnectException
+from rsconnect.http_support import HTTPResponse
 
 
 def _read_at_value(raw: str) -> str:
@@ -180,6 +181,8 @@ def api(
     has_payload = bool(fields) or raw_body is not None
     resolved_method = (method or ("POST" if has_payload else "GET")).upper()
 
+    request_headers = _split_headers(headers)
+
     query_params: Optional[Dict[str, Any]] = None
     body: Any = None
     if raw_body is not None:
@@ -188,9 +191,12 @@ def api(
         if resolved_method == "GET":
             query_params = fields
         else:
-            body = fields
-
-    request_headers = _split_headers(headers) or None
+            # Encode the JSON body ourselves rather than handing rsconnect a dict:
+            # when given a Mapping/list, RSConnectClient.request *replaces* the
+            # headers with just Content-Type, dropping any user -H values. Passing
+            # an already-encoded str keeps our headers intact.
+            body = json.dumps(fields)
+            request_headers.setdefault("Content-Type", "application/json")
 
     try:
         ce = RSConnectExecutor(
@@ -216,28 +222,34 @@ def api(
 
 
 def _emit(result: Any) -> None:
-    """Print a 2xx JSON body, or surface a non-2xx HTTPResponse and exit non-zero."""
-    if isinstance(result, (dict, list)):
+    """Print the response body, or surface an error and exit non-zero.
+
+    RSConnectClient unwraps a 2xx JSON body to a dict/list/scalar, but returns a
+    raw ``HTTPResponse`` for any other case -- including *successful* responses
+    with no JSON body (e.g. 204 No Content) as well as actual errors. So a bare
+    ``HTTPResponse`` must be classified by status, not treated as failure.
+    """
+    if not isinstance(result, HTTPResponse):
+        # Already-decoded 2xx JSON body.
         click.echo(_dumps(result))
         return
 
-    # Non-2xx (or transport error): rsconnect returns an HTTPResponse object
-    # carrying status/reason and a json_data or raw response_body.
+    payload = result.json_data if result.json_data is not None else result.response_body
+    # status/reason are only set on HTTPResponse when an actual response arrived;
+    # on a transport exception they're absent entirely.
     status = getattr(result, "status", None)
-    reason = getattr(result, "reason", None)
-    exception = getattr(result, "exception", None)
-    payload = getattr(result, "json_data", None)
-    if payload is None:
-        payload = getattr(result, "response_body", None)
+
+    if status is not None and 200 <= status < 300:
+        if payload not in (None, ""):
+            click.echo(_dumps(payload))
+        return
 
     if status is not None:
-        header = f"HTTP {status} {reason or ''}".rstrip()
-    elif exception is not None:
-        header = f"request failed: {exception}"
+        header = f"HTTP {status} {getattr(result, 'reason', '') or ''}".rstrip()
+    elif result.exception is not None:
+        header = f"request failed: {result.exception}"
     else:
-        # Not an HTTPResponse we recognize -- fall back to printing it.
-        click.echo(_dumps(result))
-        return
+        header = "request failed"
 
     body = _dumps(payload) if payload not in (None, "") else ""
     click.echo(f"{header}\n{body}".rstrip(), err=True)

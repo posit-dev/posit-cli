@@ -1,11 +1,31 @@
 """Unit tests for `posit connect api` argument handling (no network)."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from rsconnect.http_support import HTTPResponse
 
 from posit_cli.__main__ import cli
+
+
+def _http_response(status=None, reason="", body="", content_type="application/json"):
+    """Build a real rsconnect HTTPResponse for a received response.
+
+    Using the real class (not a mock) is deliberate: a previous bug hid behind a
+    mock that set attributes the real object only sets conditionally.
+    """
+    raw = MagicMock()
+    raw.status = status
+    raw.reason = reason
+    raw.getheader.return_value = content_type
+    return HTTPResponse("https://example.test/v1", response=raw, body=body)
+
+
+def _http_exception(exc):
+    """Build a real HTTPResponse representing a transport failure (no status)."""
+    return HTTPResponse("https://example.test/v1", exception=exc)
 
 
 @pytest.fixture
@@ -43,8 +63,27 @@ def test_leading_slash_stripped(runner):
 def test_fields_imply_post_and_become_body(runner):
     _, request, _ = _invoke(runner, ["v1/content", "-f", "name=app"])
     assert request.call_args.args[0] == "POST"
-    assert request.call_args.kwargs["body"] == {"name": "app"}
+    # Body is pre-encoded JSON (a str), not a dict, so rsconnect doesn't clobber
+    # our headers. Content-Type is set for us.
+    assert json.loads(request.call_args.kwargs["body"]) == {"name": "app"}
     assert request.call_args.kwargs["query_params"] is None
+    assert request.call_args.kwargs["headers"]["Content-Type"] == "application/json"
+
+
+def test_json_body_preserves_user_headers(runner):
+    _, request, _ = _invoke(
+        runner, ["v1/content", "-f", "name=app", "-H", "X-Test: 1"]
+    )
+    headers = request.call_args.kwargs["headers"]
+    assert headers["X-Test"] == "1"  # finding 2: must survive a JSON body
+    assert headers["Content-Type"] == "application/json"
+
+
+def test_explicit_content_type_not_overridden(runner):
+    _, request, _ = _invoke(
+        runner, ["v1/content", "-f", "name=app", "-H", "Content-Type: application/custom"]
+    )
+    assert request.call_args.kwargs["headers"]["Content-Type"] == "application/custom"
 
 
 def test_fields_on_get_become_query_params(runner):
@@ -59,8 +98,11 @@ def test_typed_field_parsing(runner):
         runner,
         ["v1/content", "-F", "count=10", "-F", "active=true", "-F", "note=hi"],
     )
-    body = request.call_args.kwargs["body"]
-    assert body == {"count": 10, "active": True, "note": "hi"}
+    assert json.loads(request.call_args.kwargs["body"]) == {
+        "count": 10,
+        "active": True,
+        "note": "hi",
+    }
 
 
 def test_method_override(runner):
@@ -100,14 +142,24 @@ def test_bad_field_format(runner):
 
 
 def test_non_2xx_response_exits_nonzero(runner):
-    err = MagicMock()
-    err.status = 404
-    err.reason = "Not Found"
-    err.exception = None
-    err.json_data = {"error": "nope"}
-    err.response_body = None
-    # MagicMock is neither dict nor list, so _emit treats it as an HTTPResponse.
+    err = _http_response(status=404, reason="Not Found", body=json.dumps({"error": "nope"}))
     result, _, _ = _invoke(runner, ["v1/missing"], request_return=err)
     assert result.exit_code == 1
     assert "HTTP 404 Not Found" in result.output
     assert "nope" in result.output
+
+
+def test_2xx_no_content_is_success(runner):
+    # finding 1: a 204 comes back as an HTTPResponse with no JSON body; it must
+    # be treated as success, not an error.
+    resp = _http_response(status=204, reason="No Content", body="")
+    result, _, _ = _invoke(runner, ["v1/content/x", "-X", "DELETE"], request_return=resp)
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == ""
+
+
+def test_transport_exception_exits_nonzero(runner):
+    resp = _http_exception(OSError("boom"))
+    result, _, _ = _invoke(runner, ["v1/user"], request_return=resp)
+    assert result.exit_code == 1
+    assert "request failed: boom" in result.output
