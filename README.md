@@ -17,8 +17,17 @@ with [`uv`](https://docs.astral.sh/uv/):
 uv tool install git+https://github.com/posit-dev/posit-cli.git
 ```
 
-This puts the `posit` executable on your `PATH`. To upgrade later, run
-`uv tool upgrade posit-cli`.
+If you authenticate to GitHub over SSH, use the `git+ssh://` form instead (uv
+requires the `git@` username):
+
+```console
+uv tool install git+ssh://git@github.com/posit-dev/posit-cli.git
+```
+
+Either way this puts the `posit` executable on your `PATH`. To upgrade later, run
+`uv tool upgrade posit-cli`. See uv's
+[Git authentication docs](https://docs.astral.sh/uv/concepts/authentication/git/)
+for tokens and other hosts.
 
 ## Getting started
 
