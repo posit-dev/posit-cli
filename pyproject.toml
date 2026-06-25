@@ -18,6 +18,8 @@ dependencies = [
     # tokens land in the OS keyring.
     "keyring>=23.0",
     "click>=8.0",
+    # jq bindings power `posit connect api --jq`, mirroring `gh api --jq`.
+    "jq>=1.4",
 ]
 
 [project.scripts]

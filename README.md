@@ -13,6 +13,21 @@ $ posit connect api v1/user                                   # gh-api-style raw
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
 ```
 
+## `posit connect api`
+
+A `gh api`-style raw REST client, authenticated with your saved credentials.
+`PATH` is relative to the Connect API root (the `/__api__` prefix is added for
+you):
+
+```console
+$ posit connect api v1/user                          # GET, pretty-printed JSON
+$ posit connect api v1/user -q .username             # filter with a jq expression
+$ posit connect api "v1/content?limit=3" -q '.[].name'
+```
+
+`-q`/`--jq` runs the response through [jq](https://jqlang.github.io/jq/), like
+`gh api --jq`: string results print unquoted, one per line.
+
 ## Installation
 
 ```console

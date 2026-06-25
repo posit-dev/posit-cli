@@ -136,6 +136,46 @@ def test_credential_options_passed_to_executor(runner):
     assert kwargs["url"] == "https://c.example"
 
 
+def test_jq_extracts_scalar_unquoted(runner):
+    result, _, _ = _invoke(runner, ["v1/user", "-q", ".username"], request_return={"username": "neal"})
+    assert result.exit_code == 0, result.output
+    # gh-style: a string result prints raw, without surrounding quotes.
+    assert result.output.strip() == "neal"
+
+
+def test_jq_object_result_is_compact_json(runner):
+    result, _, _ = _invoke(
+        runner, ["v1/user", "--jq", "{u: .username}"], request_return={"username": "neal"}
+    )
+    assert result.output.strip() == '{"u": "neal"}'
+
+
+def test_jq_stream_prints_one_per_line(runner):
+    result, _, _ = _invoke(
+        runner,
+        ["v1/content", "-q", ".[].name"],
+        request_return=[{"name": "a"}, {"name": "b"}],
+    )
+    assert result.output.split() == ["a", "b"]
+
+
+def test_invalid_jq_fails_before_request(runner):
+    result, request, _ = _invoke(runner, ["v1/user", "-q", ".["])
+    assert result.exit_code != 0
+    assert "--jq" in result.output
+    # Fail fast: a bad expression must not reach the network.
+    assert not request.called
+
+
+def test_jq_not_applied_to_error_response(runner):
+    err = _http_response(status=404, reason="Not Found", body=json.dumps({"error": "nope"}))
+    result, _, _ = _invoke(runner, ["v1/missing", "-q", ".error"], request_return=err)
+    # Errors are surfaced verbatim on stderr, never filtered through jq.
+    assert result.exit_code == 1
+    assert "HTTP 404 Not Found" in result.output
+    assert "nope" in result.output
+
+
 def test_no_tls_verify_flag_sets_insecure(runner):
     # We deliberately renamed rsconnect's --insecure to --no-tls-verify (and
     # dropped -i, reserving it for a future gh-style --include). Guard the wiring.

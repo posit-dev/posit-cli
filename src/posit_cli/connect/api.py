@@ -11,6 +11,7 @@ import sys
 from typing import Any, Dict, Optional, Tuple
 
 import click
+import jq
 from rsconnect.api import RSConnectExecutor, RSConnectException
 from rsconnect.http_support import HTTPResponse
 
@@ -112,6 +113,14 @@ def _split_headers(headers: Tuple[str, ...]) -> Dict[str, str]:
     metavar="FILE",
     help="Read the raw request body from a file ('-' for stdin).",
 )
+@click.option(
+    "--jq",
+    "-q",
+    "jq_filter",
+    default=None,
+    metavar="EXPR",
+    help="Filter the JSON response through a jq expression (like 'gh api --jq').",
+)
 # Credential selection -- mirrors rsconnect's own options/precedence.
 @click.option("--name", "-n", default=None, help="Nickname of a saved server.")
 @click.option(
@@ -151,6 +160,7 @@ def api(
     raw_fields: Tuple[str, ...],
     headers: Tuple[str, ...],
     input_body: Optional[str],
+    jq_filter: Optional[str],
     name: Optional[str],
     server: Optional[str],
     api_key: Optional[str],
@@ -166,6 +176,8 @@ def api(
 
       posit connect api v1/user
 
+      posit connect api v1/user -q .username
+
       posit connect api v1/content -X POST -f name=my-app
 
       posit connect api v1/content -F count=10
@@ -177,6 +189,14 @@ def api(
     raw_body = _read_at_value("@" + input_body) if input_body else None
     if raw_body is not None and fields:
         raise click.UsageError("--input cannot be combined with -f/-F fields.")
+
+    # Compile the jq filter up front so a typo fails before we hit the network.
+    jq_program = None
+    if jq_filter is not None:
+        try:
+            jq_program = jq.compile(jq_filter)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="--jq") from exc
 
     has_payload = bool(fields) or raw_body is not None
     resolved_method = (method or ("POST" if has_payload else "GET")).upper()
@@ -221,20 +241,23 @@ def api(
     except RSConnectException as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit(result)
+    _emit(result, jq_program)
 
 
-def _emit(result: Any) -> None:
+def _emit(result: Any, jq_program: Any = None) -> None:
     """Print the response body, or surface an error and exit non-zero.
 
     RSConnectClient unwraps a 2xx JSON body to a dict/list/scalar, but returns a
     raw ``HTTPResponse`` for any other case -- including *successful* responses
     with no JSON body (e.g. 204 No Content) as well as actual errors. So a bare
     ``HTTPResponse`` must be classified by status, not treated as failure.
+
+    ``jq_program`` (when given) filters a *successful* JSON body before printing;
+    error responses are never filtered.
     """
     if not isinstance(result, HTTPResponse):
         # Already-decoded 2xx JSON body.
-        click.echo(_dumps(result))
+        _emit_success(result, jq_program)
         return
 
     payload = result.json_data if result.json_data is not None else result.response_body
@@ -243,8 +266,7 @@ def _emit(result: Any) -> None:
     status = getattr(result, "status", None)
 
     if status is not None and 200 <= status < 300:
-        if payload not in (None, ""):
-            click.echo(_dumps(payload))
+        _emit_success(payload, jq_program)
         return
 
     if status is not None:
@@ -257,6 +279,22 @@ def _emit(result: Any) -> None:
     body = _dumps(payload) if payload not in (None, "") else ""
     click.echo(f"{header}\n{body}".rstrip(), err=True)
     raise SystemExit(1)
+
+
+def _emit_success(value: Any, jq_program: Any = None) -> None:
+    """Print a successful response body, optionally filtered through jq.
+
+    Mirrors ``gh api``: with a jq filter, each result prints on its own line --
+    strings raw (unquoted), everything else as compact JSON. Without a filter,
+    the body is pretty-printed. Empty bodies (e.g. 204) print nothing.
+    """
+    if value in (None, ""):
+        return
+    if jq_program is None:
+        click.echo(_dumps(value))
+        return
+    for item in jq_program.input_value(value).all():
+        click.echo(item if isinstance(item, str) else json.dumps(item))
 
 
 def _dumps(value: Any) -> str:
