@@ -129,12 +129,12 @@ def _split_headers(headers: Tuple[str, ...]) -> Dict[str, str]:
     help="Connect API key [env: CONNECT_API_KEY].",
 )
 @click.option(
-    "--insecure",
-    "-i",
+    "--no-tls-verify",
+    "insecure",
     is_flag=True,
     default=False,
     envvar="CONNECT_INSECURE",
-    help="Disable TLS certificate verification.",
+    help="Skip TLS certificate verification (still uses TLS) [env: CONNECT_INSECURE].",
 )
 @click.option(
     "--cacert",

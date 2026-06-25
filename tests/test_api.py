@@ -136,6 +136,13 @@ def test_credential_options_passed_to_executor(runner):
     assert kwargs["url"] == "https://c.example"
 
 
+def test_no_tls_verify_flag_sets_insecure(runner):
+    # We deliberately renamed rsconnect's --insecure to --no-tls-verify (and
+    # dropped -i, reserving it for a future gh-style --include). Guard the wiring.
+    _, _, Executor = _invoke(runner, ["v1/user", "--no-tls-verify"])
+    assert Executor.call_args.kwargs["insecure"] is True
+
+
 def test_input_conflicts_with_fields(runner, tmp_path):
     body_file = tmp_path / "b.json"
     body_file.write_text("{}")
