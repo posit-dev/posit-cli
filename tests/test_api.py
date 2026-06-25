@@ -249,6 +249,105 @@ def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
     assert "jq:" in result.stderr
 
 
+def _paginated_invoke(runner, args, pages):
+    """Invoke `api ... --paginate` with the client returning `pages` in order."""
+    with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
+        ce = Executor.return_value
+        ce.client.request.side_effect = list(pages)
+        result = runner.invoke(cli, ["connect", "api", *args])
+        return result, ce.client.request
+
+
+def test_paginate_cursor_follows_token_and_merges(runner):
+    page1 = {"results": [{"id": 1}, {"id": 2}], "paging": {"cursors": {"next": "2"}}}
+    page2 = {"results": [{"id": 3}], "paging": {"cursors": {"next": None}}}
+    result, request = _paginated_invoke(runner, ["v1/audit_logs", "--paginate"], [page1, page2])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert request.call_count == 2
+    # Second request carries the cursor token and a max page size.
+    qp = request.call_args_list[1].kwargs["query_params"]
+    assert qp["next"] == "2"
+    assert qp["limit"] == 500
+
+
+def test_paginate_cursor_falls_back_to_next_url(runner):
+    # An endpoint that only exposes paging.next (full URL), no cursors token.
+    page1 = {"results": [{"id": 1}], "paging": {"next": "https://c.example/__api__/v1/x?next=2"}}
+    page2 = {"results": [{"id": 2}], "paging": {"next": None}}
+    result, request = _paginated_invoke(runner, ["v1/x", "--paginate"], [page1, page2])
+    assert json.loads(result.output) == [{"id": 1}, {"id": 2}]
+    # The full URL is normalized to base path + query params.
+    assert request.call_args_list[1].args[1] == "v1/x"
+    assert request.call_args_list[1].kwargs["query_params"]["next"] == "2"
+
+
+def test_paginate_page_number_style(runner):
+    # users/groups style: {current_page, total, results}, no paging.
+    page1 = {"current_page": 1, "total": 3, "results": [{"id": 1}, {"id": 2}]}
+    page2 = {"current_page": 2, "total": 3, "results": [{"id": 3}]}
+    result, request = _paginated_invoke(runner, ["v1/users", "--paginate"], [page1, page2])
+    assert json.loads(result.output) == [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert request.call_count == 2
+    qp = request.call_args_list[1].kwargs["query_params"]
+    assert qp["page_number"] == 2
+    assert qp["page_size"] == 500
+
+
+def test_paginate_page_number_stops_on_empty(runner):
+    # Defensive stop: empty results page ends pagination even if total disagrees.
+    page1 = {"current_page": 1, "total": 99, "results": [{"id": 1}]}
+    page2 = {"current_page": 2, "total": 99, "results": []}
+    result, request = _paginated_invoke(runner, ["v1/users", "--paginate"], [page1, page2])
+    assert json.loads(result.output) == [{"id": 1}]
+    assert request.call_count == 2
+
+
+def test_paginate_single_page_unchanged(runner):
+    page = {"current_page": 1, "total": 1, "results": [{"id": 1}]}
+    result, request = _paginated_invoke(runner, ["v1/users", "--paginate"], [page])
+    assert request.call_count == 1
+    # One page is returned verbatim -- same as without --paginate.
+    assert json.loads(result.output) == page
+
+
+def test_paginate_bare_array_is_single_page(runner):
+    # v1/content returns a bare array (no pagination); --paginate is a no-op.
+    page = [{"guid": "a"}, {"guid": "b"}]
+    result, request = _paginated_invoke(runner, ["v1/content", "--paginate"], [page])
+    assert request.call_count == 1
+    assert json.loads(result.output) == page
+
+
+def test_paginate_with_jq_filters_merged_results(runner):
+    page1 = {"results": [{"id": 1}], "paging": {"cursors": {"next": "2"}}}
+    page2 = {"results": [{"id": 2}], "paging": {"cursors": {"next": None}}}
+    result, _ = _paginated_invoke(
+        runner, ["v1/audit_logs", "--paginate", "-q", ".[].id"], [page1, page2]
+    )
+    assert result.output.split() == ["1", "2"]
+
+
+def test_paginate_stops_on_error(runner):
+    page1 = {"results": [{"id": 1}], "paging": {"cursors": {"next": "2"}}}
+    err = _http_response(status=500, reason="Server Error", body="")
+    result, request = _paginated_invoke(runner, ["v1/audit_logs", "--paginate"], [page1, err])
+    assert result.exit_code == 1
+    assert request.call_count == 2
+
+
+def test_paginate_rejects_include(runner):
+    result, _, _ = _invoke(runner, ["v1/audit_logs", "--paginate", "-i"])
+    assert result.exit_code != 0
+    assert "cannot be combined with --include" in result.output
+
+
+def test_paginate_rejects_non_get(runner):
+    result, _, _ = _invoke(runner, ["v1/content", "--paginate", "-X", "POST", "-f", "name=x"])
+    assert result.exit_code != 0
+    assert "only supports GET" in result.output
+
+
 def test_no_tls_verify_flag_sets_insecure(runner):
     # We deliberately renamed rsconnect's --insecure to --no-tls-verify (and
     # dropped -i, reserving it for a future gh-style --include). Guard the wiring.

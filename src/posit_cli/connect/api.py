@@ -8,12 +8,19 @@ picks OAuth ``Bearer`` vs API-``Key`` auth, and auto-refreshes OAuth tokens on
 
 import json
 import sys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlparse
 
 import click
 import jq
 from rsconnect.api import RSConnectExecutor, RSConnectException
 from rsconnect.http_support import HTTPResponse
+
+# Safety cap so a malformed/cyclic paging.next can't loop forever.
+_MAX_PAGES = 10_000
+# Connect's maximum page size; request it for follow-up pages to minimize
+# round-trips (matches posit-sdk-py).
+_MAX_PAGE_SIZE = 500
 
 
 def _read_at_value(raw: str) -> str:
@@ -128,6 +135,12 @@ def _split_headers(headers: Tuple[str, ...]) -> Dict[str, str]:
     default=False,
     help="Include the HTTP response status line and headers in the output.",
 )
+@click.option(
+    "--paginate",
+    is_flag=True,
+    default=False,
+    help="Follow Connect's pagination and output all pages' results combined (GET only).",
+)
 # Credential selection -- mirrors rsconnect's own options/precedence.
 @click.option("--name", "-n", default=None, help="Nickname of a saved server.")
 @click.option(
@@ -169,6 +182,7 @@ def api(
     input_body: Optional[str],
     jq_filter: Optional[str],
     include: bool,
+    paginate: bool,
     name: Optional[str],
     server: Optional[str],
     api_key: Optional[str],
@@ -209,6 +223,15 @@ def api(
     has_payload = bool(fields) or raw_body is not None
     resolved_method = (method or ("POST" if has_payload else "GET")).upper()
 
+    if paginate:
+        # Pagination walks read endpoints and combines bodies; showing the
+        # headers of just one of N responses would be misleading, and following
+        # pages of a write makes no sense.
+        if include:
+            raise click.UsageError("--paginate cannot be combined with --include.")
+        if resolved_method != "GET":
+            raise click.UsageError("--paginate only supports GET requests.")
+
     request_headers = _split_headers(headers)
 
     query_params: Optional[Dict[str, Any]] = None
@@ -245,13 +268,18 @@ def api(
             # need the raw HTTPResponse, so neutralize the unwrapping for this
             # request (the identity is exactly the HTTPServer base behavior).
             ce.client._tweak_response = lambda response: response
-        result = ce.client.request(
-            resolved_method,
-            path.lstrip("/"),  # client prepends /__api__ itself
-            query_params=query_params,
-            body=body,
-            headers=request_headers,
-        )
+        if paginate:
+            result = _request_all_pages(
+                ce.client, resolved_method, path.lstrip("/"), query_params, body, request_headers
+            )
+        else:
+            result = ce.client.request(
+                resolved_method,
+                path.lstrip("/"),  # client prepends /__api__ itself
+                query_params=query_params,
+                body=body,
+                headers=request_headers,
+            )
     except RSConnectException as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -337,6 +365,124 @@ def _emit(
     if message:
         click.echo(message, err=True)
     raise SystemExit(1)
+
+
+def _request_all_pages(
+    client: Any,
+    method: str,
+    path: str,
+    query_params: Optional[Dict[str, Any]],
+    body: Any,
+    headers: Dict[str, str],
+) -> Any:
+    """Fetch every page of a Connect list endpoint and combine the results.
+
+    Connect paginates two ways (mirrored from posit-sdk-py's Paginator and
+    CursorPaginator):
+
+    * cursor style -- ``{paging: {cursors: {next}}, results}`` (e.g. audit logs):
+      follow the ``paging.cursors.next`` token until it's empty.
+    * page-number style -- ``{current_page, total, results}`` (e.g. users,
+      groups): request ``page_number`` 1..N until results are empty or the
+      accumulated count reaches ``total``.
+
+    Anything else (a bare array, an unrecognized shape) is treated as a single
+    page. Returns the combined result, or the first ``HTTPResponse`` (an error
+    or non-JSON body) so the caller's error path handles it.
+    """
+    base_path, params = _split_query(path, query_params)
+    pages: List[Any] = []
+    count = 0
+    while len(pages) < _MAX_PAGES:
+        result = client.request(
+            method, base_path, query_params=(params or None), body=body, headers=headers
+        )
+        if isinstance(result, HTTPResponse):
+            # Non-2xx or non-JSON: surface it directly (errors aren't paged).
+            return result
+        pages.append(result)
+
+        paging = result.get("paging") if isinstance(result, dict) else None
+        results = result.get("results") if isinstance(result, dict) else None
+
+        if isinstance(paging, dict):
+            # Cursor style: prefer the cursor token; fall back to the full
+            # paging.next URL if an endpoint only provides that form.
+            cursors = paging.get("cursors") or {}
+            token = cursors.get("next")
+            if token:
+                params = {**params, "next": token}
+                params.setdefault("limit", _MAX_PAGE_SIZE)
+                continue
+            next_url = paging.get("next")
+            if isinstance(next_url, str) and next_url:
+                base_path, params = _split_query(_next_page_path(next_url), None)
+                continue
+            break
+
+        if isinstance(results, list) and isinstance(result.get("current_page"), int):
+            # Page-number style: stop on an empty page or once we've seen `total`.
+            count += len(results)
+            total = result.get("total")
+            if not results or (isinstance(total, int) and count >= total):
+                break
+            params = {**params, "page_number": result["current_page"] + 1}
+            params.setdefault("page_size", _MAX_PAGE_SIZE)
+            continue
+
+        break  # bare array or unrecognized shape -> single page
+    return _merge_pages(pages)
+
+
+def _split_query(
+    path: str, query_params: Optional[Dict[str, Any]]
+) -> Tuple[str, Dict[str, Any]]:
+    """Split any ``?query`` off ``path`` and merge it with ``query_params``.
+
+    Pagination needs the query as a mutable dict so it can advance the cursor or
+    page number while preserving the caller's other filters.
+    """
+    base = path
+    params: Dict[str, Any] = {}
+    if "?" in path:
+        base, query = path.split("?", 1)
+        params.update(parse_qsl(query))
+    if query_params:
+        params.update(query_params)
+    return base, params
+
+
+def _next_page_path(next_url: str) -> str:
+    """Turn an absolute ``paging.next`` URL into a path the client can request.
+
+    The client prepends ``/__api__``, so strip everything up to and including
+    that marker and keep the remainder (with any query string).
+    """
+    parsed = urlparse(next_url)
+    marker = "/__api__/"
+    idx = parsed.path.find(marker)
+    rel = parsed.path[idx + len(marker):] if idx != -1 else parsed.path.lstrip("/")
+    return f"{rel}?{parsed.query}" if parsed.query else rel
+
+
+def _merge_pages(pages: List[Any]) -> Any:
+    """Combine paginated pages into a single result.
+
+    A single page is returned unchanged (so unpaged endpoints behave exactly as
+    without ``--paginate``). Connect's paged endpoints wrap rows in a ``results``
+    array; across multiple pages those arrays are concatenated. If any page
+    lacks a ``results`` list, the raw pages are returned rather than dropping
+    data silently.
+    """
+    if len(pages) == 1:
+        return pages[0]
+    merged: List[Any] = []
+    for page in pages:
+        rows = page.get("results") if isinstance(page, dict) else None
+        if not isinstance(rows, list):
+            return pages
+        merged.extend(rows)
+    return merged
 
 
 def _header_lines(result: Any, status: int) -> "list[str]":

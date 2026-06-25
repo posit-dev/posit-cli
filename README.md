@@ -35,6 +35,15 @@ output (handy for inspecting rate limits, request IDs, or the server version):
 $ posit connect api v1/user -i
 ```
 
+`--paginate` (GET only) follows Connect's pagination and prints all pages'
+results combined. It handles both of Connect's pagination styles — the
+cursor style (e.g. `v1/audit_logs`) and the page-number style (e.g.
+`v1/users`, `v1/groups`) — and leaves unpaginated endpoints unchanged:
+
+```console
+$ posit connect api v1/users --paginate -q 'length'   # count every user
+```
+
 ### Query parameters vs. request body
 
 Like `gh api`, `-f`/`-F` fields default to a **POST request body** (adding any
