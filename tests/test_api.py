@@ -312,7 +312,9 @@ def test_paginate_page_number_style(runner):
     assert request.call_count == 2
     qp = request.call_args_list[1].kwargs["query_params"]
     assert qp["page_number"] == 2
-    assert qp["page_size"] == 500
+    # Page size must stay constant across page-number requests (offset window);
+    # we don't inject one, so it isn't changed mid-stream.
+    assert "page_size" not in qp
 
 
 def test_paginate_page_number_stops_on_empty(runner):
@@ -321,6 +323,31 @@ def test_paginate_page_number_stops_on_empty(runner):
     page2 = {"current_page": 2, "total": 99, "results": []}
     result, request = _paginated_invoke(runner, ["v1/users", "--paginate"], [page1, page2])
     assert json.loads(result.output) == [{"id": 1}]
+    assert request.call_count == 2
+
+
+def test_paginate_page_number_keeps_page_size_constant(runner):
+    # A user-set page_size must be carried through unchanged on every request.
+    page1 = {"current_page": 1, "total": 3, "results": [{"id": 1}, {"id": 2}]}
+    page2 = {"current_page": 2, "total": 3, "results": [{"id": 3}]}
+    result, request = _paginated_invoke(
+        runner, ["v1/users?page_size=2", "--paginate"], [page1, page2]
+    )
+    assert json.loads(result.output) == [{"id": 1}, {"id": 2}, {"id": 3}]
+    qp = request.call_args_list[1].kwargs["query_params"]
+    assert qp["page_size"] == "2"  # unchanged from page 1
+    assert qp["page_number"] == 2
+
+
+def test_paginate_cap_exhaustion_errors(runner, monkeypatch):
+    # A never-ending cursor must fail loudly at the cap, not silently truncate.
+    monkeypatch.setattr("posit_cli.connect.api._MAX_PAGES", 2)
+    pages = [
+        {"results": [{"id": i}], "paging": {"cursors": {"next": str(i + 1)}}} for i in range(5)
+    ]
+    result, request = _paginated_invoke(runner, ["v1/audit_logs", "--paginate"], pages)
+    assert result.exit_code != 0
+    assert "stopped after 2 pages" in result.output
     assert request.call_count == 2
 
 

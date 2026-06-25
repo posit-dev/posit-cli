@@ -393,7 +393,7 @@ def _request_all_pages(
     base_path, params = _split_query(path, query_params)
     pages: List[Any] = []
     count = 0
-    while len(pages) < _MAX_PAGES:
+    while True:
         result = client.request(
             method, base_path, query_params=(params or None), body=body, headers=headers
         )
@@ -405,32 +405,42 @@ def _request_all_pages(
         paging = result.get("paging") if isinstance(result, dict) else None
         results = result.get("results") if isinstance(result, dict) else None
 
+        # Work out the next request, or None to stop.
+        next_target: Optional[Tuple[str, Dict[str, Any]]] = None
         if isinstance(paging, dict):
             # Cursor style: prefer the cursor token; fall back to the full
-            # paging.next URL if an endpoint only provides that form.
+            # paging.next URL if an endpoint only provides that form. A cursor is
+            # a position token, so raising the page size between pages is safe.
             cursors = paging.get("cursors") or {}
             token = cursors.get("next")
             if token:
-                params = {**params, "next": token}
-                params.setdefault("limit", _MAX_PAGE_SIZE)
-                continue
-            next_url = paging.get("next")
-            if isinstance(next_url, str) and next_url:
-                base_path, params = _split_query(_next_page_path(next_url), None)
-                continue
-            break
-
-        if isinstance(results, list) and isinstance(result.get("current_page"), int):
+                next_params = {**params, "next": token}
+                next_params.setdefault("limit", _MAX_PAGE_SIZE)
+                next_target = (base_path, next_params)
+            else:
+                next_url = paging.get("next")
+                if isinstance(next_url, str) and next_url:
+                    next_target = _split_query(_next_page_path(next_url), None)
+        elif isinstance(results, list) and isinstance(result.get("current_page"), int):
             # Page-number style: stop on an empty page or once we've seen `total`.
+            # Page size must stay *constant* across requests -- it defines the
+            # offset window, so changing it mid-stream would skip/duplicate rows.
             count += len(results)
             total = result.get("total")
-            if not results or (isinstance(total, int) and count >= total):
-                break
-            params = {**params, "page_number": result["current_page"] + 1}
-            params.setdefault("page_size", _MAX_PAGE_SIZE)
-            continue
+            if results and not (isinstance(total, int) and count >= total):
+                next_target = (base_path, {**params, "page_number": result["current_page"] + 1})
+        # else: bare array or unrecognized shape -> single page.
 
-        break  # bare array or unrecognized shape -> single page
+        if next_target is None:
+            break
+        if len(pages) >= _MAX_PAGES:
+            # There's still a next page but we've hit the cap: fail loudly rather
+            # than silently returning a truncated result with exit code 0.
+            raise click.ClickException(
+                f"--paginate stopped after {_MAX_PAGES} pages; "
+                "possible pagination loop or an unexpectedly large result set"
+            )
+        base_path, params = next_target
     return _merge_pages(pages)
 
 
