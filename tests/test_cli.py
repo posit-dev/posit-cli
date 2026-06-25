@@ -24,10 +24,18 @@ def test_connect_mounts_api_command(runner):
 
 
 # rsconnect commands we expect to re-expose under `posit connect`. `login`/`logout`
-# are intentionally absent: they only exist on rsconnect's unreleased main branch
-# and will appear automatically once a release ships them (commands are mounted
-# dynamically). When that happens, add them here.
-EXPECTED_RSCONNECT_COMMANDS = ["add", "deploy", "list", "details", "remove", "bootstrap"]
+# (OAuth) come from the rsconnect main-branch build we currently track; they should
+# remain present once that work is released.
+EXPECTED_RSCONNECT_COMMANDS = [
+    "add",
+    "deploy",
+    "list",
+    "details",
+    "remove",
+    "bootstrap",
+    "login",
+    "logout",
+]
 
 
 @pytest.mark.parametrize("name", EXPECTED_RSCONNECT_COMMANDS)

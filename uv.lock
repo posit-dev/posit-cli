@@ -487,7 +487,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "keyring", specifier = ">=23.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7" },
-    { name = "rsconnect-python", specifier = ">=1.29,<2" },
+    { name = "rsconnect-python", git = "https://github.com/posit-dev/rsconnect-python.git?rev=main" },
 ]
 provides-extras = ["test"]
 
@@ -591,8 +591,8 @@ wheels = [
 
 [[package]]
 name = "rsconnect-python"
-version = "1.29.0"
-source = { registry = "https://pypi.org/simple" }
+version = "1.29.1.dev14+g9f22fddc7"
+source = { git = "https://github.com/posit-dev/rsconnect-python.git?rev=main#9f22fddc7bcd67659df99c24c1bb668952d57ccd" }
 dependencies = [
     { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "click", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -603,9 +603,6 @@ dependencies = [
     { name = "toml", marker = "python_full_version < '3.11'" },
     { name = "typing-extensions" },
     { name = "uv" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4b/2d/e1c992e5f63421cdc01a9398a67c62c886b711085d16c01abee7335354ca/rsconnect_python-1.29.0-py2.py3-none-any.whl", hash = "sha256:187960581cd5f277409b94d01d30e47e731d89eb28bb62b74aea551b921f7f6d", size = 116926, upload-time = "2026-04-29T19:10:42.708Z" },
 ]
 
 [[package]]

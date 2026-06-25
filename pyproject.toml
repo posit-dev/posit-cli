@@ -8,12 +8,14 @@ license = { text = "MIT" }
 authors = [{ name = "Posit Software, PBC" }]
 dependencies = [
     # posit-cli reuses rsconnect-python's *internal* API (RSConnectExecutor,
-    # RSConnectClient). These have no stability contract, so keep this pin tight and
-    # re-verify the internals on bumps. See tests/test_rsconnect_contract.py.
-    "rsconnect-python>=1.29,<2",
-    # rsconnect imports `keyring` optionally (it has no published `keyring` extra as
-    # of 1.29.0). We depend on it directly so OAuth tokens land in the OS keyring
-    # once rsconnect's OAuth `login` ships in a release.
+    # RSConnectClient). These have no stability contract, so re-verify the internals
+    # on bumps. See tests/test_rsconnect_contract.py.
+    #
+    # TEMPORARY: tracking rsconnect's main branch for the unreleased OAuth
+    # `login`/`logout` commands. Pin back to a released ">=1.30,<2" once that ships.
+    "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python.git@main",
+    # rsconnect imports `keyring` optionally; we depend on it directly so OAuth
+    # tokens land in the OS keyring.
     "keyring>=23.0",
     "click>=8.0",
 ]
@@ -27,6 +29,11 @@ test = ["pytest>=7"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# Required for the temporary git dependency on rsconnect-python's main branch.
+# Drop once we pin back to a released rsconnect-python.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/posit_cli"]
