@@ -44,6 +44,9 @@ cursor style (e.g. `v1/audit_logs`) and the page-number style (e.g.
 $ posit connect api v1/users --paginate -q 'length'   # count every user
 ```
 
+`PATH` may also be a full URL on the configured server — convenient for pasting
+a `paging.next` link straight back in. A URL for a different host is rejected.
+
 ### Query parameters vs. request body
 
 Like `gh api`, `-f`/`-F` fields default to a **POST request body** (adding any

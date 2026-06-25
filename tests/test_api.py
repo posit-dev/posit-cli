@@ -43,6 +43,7 @@ def _invoke(runner, args, request_return=None):
     """
     with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
         ce = Executor.return_value
+        ce.remote_server.url = "https://c.example"  # resolved server for path checks
         ce.client.request.return_value = (
             request_return if request_return is not None else {"ok": True}
         )
@@ -274,6 +275,7 @@ def _paginated_invoke(runner, args, pages):
     """Invoke `api ... --paginate` with the client returning `pages` in order."""
     with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
         ce = Executor.return_value
+        ce.remote_server.url = "https://c.example"
         ce.client.request.side_effect = list(pages)
         result = runner.invoke(cli, ["connect", "api", *args])
         return result, ce.client.request
@@ -394,6 +396,23 @@ def test_paginate_rejects_non_get(runner):
     result, _, _ = _invoke(runner, ["v1/content", "--paginate", "-X", "POST", "-f", "name=x"])
     assert result.exit_code != 0
     assert "only supports GET" in result.output
+
+
+def test_full_url_path_is_reduced_to_api_relative(runner):
+    _, request, _ = _invoke(runner, ["https://c.example/__api__/v1/user"])
+    assert request.call_args.args[1] == "v1/user"
+
+
+def test_full_url_preserves_query_string(runner):
+    _, request, _ = _invoke(runner, ["https://c.example/__api__/v1/content?limit=1"])
+    assert request.call_args.args[1] == "v1/content?limit=1"
+
+
+def test_full_url_wrong_host_is_rejected(runner):
+    result, request, _ = _invoke(runner, ["https://other.example/__api__/v1/user"])
+    assert result.exit_code != 0
+    assert "does not match the target server" in result.output
+    assert not request.called  # never sent to the configured server
 
 
 def test_no_tls_verify_flag_sets_insecure(runner):

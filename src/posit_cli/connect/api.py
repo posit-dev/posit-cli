@@ -262,6 +262,7 @@ def api(
             cacert=cacert,
         )
         ce.setup_client()
+        request_path = _resolve_path(path, getattr(ce.remote_server, "url", None))
         if include:
             # RSConnectClient._tweak_response unwraps a 2xx JSON body to a
             # dict/list, discarding the status line and headers. To show them we
@@ -270,12 +271,12 @@ def api(
             ce.client._tweak_response = lambda response: response
         if paginate:
             result = _request_all_pages(
-                ce.client, resolved_method, path.lstrip("/"), query_params, body, request_headers
+                ce.client, resolved_method, request_path, query_params, body, request_headers
             )
         else:
             result = ce.client.request(
                 resolved_method,
-                path.lstrip("/"),  # client prepends /__api__ itself
+                request_path,
                 query_params=query_params,
                 body=body,
                 headers=request_headers,
@@ -460,6 +461,27 @@ def _split_query(
     if query_params:
         params.update(query_params)
     return base, params
+
+
+def _resolve_path(path: str, server_url: Optional[str]) -> str:
+    """Normalize the PATH argument to something the client can request.
+
+    A relative path keeps its existing behavior (leading slash stripped; the
+    client adds ``/__api__``). A full URL -- handy for pasting a ``paging.next``
+    link -- is reduced to its API-relative path. Because the client is bound to
+    a single server, a URL for a different host is rejected rather than silently
+    sent to the configured server.
+    """
+    if not path.startswith(("http://", "https://")):
+        return path.lstrip("/")  # client prepends /__api__ itself
+    parsed = urlparse(path)
+    server = urlparse(server_url or "")
+    if server.netloc and parsed.netloc != server.netloc:
+        raise click.ClickException(
+            f"URL host '{parsed.netloc}' does not match the target server "
+            f"'{server.netloc}'; 'posit connect api' only talks to the configured server."
+        )
+    return _next_page_path(path)
 
 
 def _next_page_path(next_url: str) -> str:
