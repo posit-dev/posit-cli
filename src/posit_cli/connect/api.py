@@ -293,7 +293,15 @@ def _emit_success(value: Any, jq_program: Any = None) -> None:
     if jq_program is None:
         click.echo(_dumps(value))
         return
-    for item in jq_program.input_value(value).all():
+    # A filter can compile cleanly yet fail at runtime (e.g. error(...) or a
+    # type mismatch against the actual payload). .all() materializes every
+    # result first, so a failure raises here before anything is printed --
+    # surface it as a clean CLI error, not a traceback.
+    try:
+        results = jq_program.input_value(value).all()
+    except ValueError as exc:
+        raise click.ClickException(f"jq: {exc}") from exc
+    for item in results:
         click.echo(item if isinstance(item, str) else json.dumps(item))
 
 

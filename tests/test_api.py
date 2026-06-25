@@ -167,6 +167,17 @@ def test_invalid_jq_fails_before_request(runner):
     assert not request.called
 
 
+def test_jq_runtime_error_is_clean_not_traceback(runner):
+    # Compiles fine, fails at evaluation time -- must surface as a clean CLI
+    # error (exit 1), not an unhandled ValueError traceback.
+    result, _, _ = _invoke(
+        runner, ["v1/user", "-q", 'error("boom")'], request_return={"username": "neal"}
+    )
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "jq:" in result.output
+
+
 def test_jq_not_applied_to_error_response(runner):
     err = _http_response(status=404, reason="Not Found", body=json.dumps({"error": "nope"}))
     result, _, _ = _invoke(runner, ["v1/missing", "-q", ".error"], request_return=err)
