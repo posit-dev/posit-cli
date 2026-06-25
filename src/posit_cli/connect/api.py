@@ -476,12 +476,26 @@ def _resolve_path(path: str, server_url: Optional[str]) -> str:
         return path.lstrip("/")  # client prepends /__api__ itself
     parsed = urlparse(path)
     server = urlparse(server_url or "")
-    if server.netloc and parsed.netloc != server.netloc:
+    if server.hostname and not _same_host(parsed, server):
         raise click.ClickException(
             f"URL host '{parsed.netloc}' does not match the target server "
             f"'{server.netloc}'; 'posit connect api' only talks to the configured server."
         )
     return _next_page_path(path)
+
+
+def _same_host(a: Any, b: Any) -> bool:
+    """Whether two parsed URLs point at the same host:port.
+
+    Compares hostnames case-insensitively and effective ports (filling in the
+    scheme default), so e.g. ``c.example`` and ``C.EXAMPLE:443`` over https match.
+    """
+    if (a.hostname or "").lower() != (b.hostname or "").lower():
+        return False
+    defaults = {"http": 80, "https": 443}
+    port_a = a.port or defaults.get(a.scheme)
+    port_b = b.port or defaults.get(b.scheme)
+    return port_a == port_b
 
 
 def _next_page_path(next_url: str) -> str:

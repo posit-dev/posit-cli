@@ -408,6 +408,18 @@ def test_full_url_preserves_query_string(runner):
     assert request.call_args.args[1] == "v1/content?limit=1"
 
 
+def test_full_url_default_port_matches(runner):
+    # Configured server has no explicit port; an explicit :443 over https is the
+    # same host and must not be rejected.
+    _, request, _ = _invoke(runner, ["https://c.example:443/__api__/v1/user"])
+    assert request.call_args.args[1] == "v1/user"
+
+
+def test_full_url_host_match_is_case_insensitive(runner):
+    _, request, _ = _invoke(runner, ["https://C.EXAMPLE/__api__/v1/user"])
+    assert request.call_args.args[1] == "v1/user"
+
+
 def test_full_url_wrong_host_is_rejected(runner):
     result, request, _ = _invoke(runner, ["https://other.example/__api__/v1/user"])
     assert result.exit_code != 0
