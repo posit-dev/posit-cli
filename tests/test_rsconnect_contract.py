@@ -21,6 +21,14 @@ def test_executor_surface():
     for expected in ("method", "path", "query_params", "body", "headers"):
         assert expected in req_params, f"RSConnectClient.request lost {expected!r}"
 
+    # `posit connect api --include` neutralizes this 2xx-JSON unwrapping (by
+    # assigning an identity to the instance) to recover the raw HTTPResponse and
+    # its status/headers. If rsconnect renames it, --include silently loses
+    # headers -- fail loudly here instead.
+    assert hasattr(RSConnectClient, "_tweak_response"), (
+        "RSConnectClient lost _tweak_response; `api --include` relies on bypassing it"
+    )
+
     # Used for clean error wrapping.
     assert issubclass(RSConnectException, Exception)
 

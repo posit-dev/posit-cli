@@ -121,6 +121,13 @@ def _split_headers(headers: Tuple[str, ...]) -> Dict[str, str]:
     metavar="EXPR",
     help="Filter the JSON response through a jq expression (like 'gh api --jq').",
 )
+@click.option(
+    "--include",
+    "-i",
+    is_flag=True,
+    default=False,
+    help="Include the HTTP response status line and headers in the output.",
+)
 # Credential selection -- mirrors rsconnect's own options/precedence.
 @click.option("--name", "-n", default=None, help="Nickname of a saved server.")
 @click.option(
@@ -161,6 +168,7 @@ def api(
     headers: Tuple[str, ...],
     input_body: Optional[str],
     jq_filter: Optional[str],
+    include: bool,
     name: Optional[str],
     server: Optional[str],
     api_key: Optional[str],
@@ -231,6 +239,12 @@ def api(
             cacert=cacert,
         )
         ce.setup_client()
+        if include:
+            # RSConnectClient._tweak_response unwraps a 2xx JSON body to a
+            # dict/list, discarding the status line and headers. To show them we
+            # need the raw HTTPResponse, so neutralize the unwrapping for this
+            # request (the identity is exactly the HTTPServer base behavior).
+            ce.client._tweak_response = lambda response: response
         result = ce.client.request(
             resolved_method,
             path.lstrip("/"),  # client prepends /__api__ itself
@@ -246,10 +260,15 @@ def api(
     # an unknown body field. Only when the POST was *implicit* (no -X) does a 4xx
     # warrant nudging the user toward query params.
     fields_implied_post = method is None and bool(fields)
-    _emit(result, jq_program, query_param_hint=fields_implied_post)
+    _emit(result, jq_program, query_param_hint=fields_implied_post, include=include)
 
 
-def _emit(result: Any, jq_program: Any = None, query_param_hint: bool = False) -> None:
+def _emit(
+    result: Any,
+    jq_program: Any = None,
+    query_param_hint: bool = False,
+    include: bool = False,
+) -> None:
     """Print the response body, or surface an error and exit non-zero.
 
     RSConnectClient unwraps a 2xx JSON body to a dict/list/scalar, but returns a
@@ -260,38 +279,67 @@ def _emit(result: Any, jq_program: Any = None, query_param_hint: bool = False) -
     ``jq_program`` (when given) filters a *successful* JSON body before printing;
     error responses are never filtered. ``query_param_hint`` adds a nudge toward
     query params when an implicit-POST request fails with a client error.
+    ``include`` prepends the HTTP status line and response headers (requires the
+    raw HTTPResponse, which the caller arranges by bypassing _tweak_response).
     """
-    if not isinstance(result, HTTPResponse):
-        # Already-decoded 2xx JSON body.
-        _emit_success(result, jq_program)
-        return
+    if isinstance(result, HTTPResponse):
+        # status/reason/headers are only present when an actual response arrived;
+        # on a transport exception they're absent entirely.
+        status = getattr(result, "status", None)
+        payload = result.json_data if result.json_data is not None else result.response_body
+    else:
+        # Already-decoded 2xx JSON body (the unwrapped, non-include path).
+        status = 200
+        payload = result
 
-    payload = result.json_data if result.json_data is not None else result.response_body
-    # status/reason are only set on HTTPResponse when an actual response arrived;
-    # on a transport exception they're absent entirely.
-    status = getattr(result, "status", None)
+    success = status is not None and 200 <= status < 300
 
-    if status is not None and 200 <= status < 300:
+    # In include mode the status/headers go to the same stream as the body:
+    # stdout on success, stderr on failure (matching our errors-to-stderr rule).
+    if include and status is not None:
+        for line in _header_lines(result, status):
+            click.echo(line, err=not success)
+        click.echo("", err=not success)  # blank line between headers and body
+
+    if success:
         _emit_success(payload, jq_program)
         return
 
-    if status is not None:
-        header = f"HTTP {status} {getattr(result, 'reason', '') or ''}".rstrip()
-    elif result.exception is not None:
-        header = f"request failed: {result.exception}"
+    if status is None:
+        # Transport failure: no response or headers exist (include is moot here).
+        message = (
+            f"request failed: {result.exception}"
+            if result.exception is not None
+            else "request failed"
+        )
+    elif include:
+        # The status line and headers were already shown; just the body here.
+        message = _dumps(payload) if payload not in (None, "") else ""
     else:
-        header = "request failed"
+        header = f"HTTP {status} {getattr(result, 'reason', '') or ''}".rstrip()
+        body = _dumps(payload) if payload not in (None, "") else ""
+        message = f"{header}\n{body}".rstrip()
 
-    body = _dumps(payload) if payload not in (None, "") else ""
-    message = f"{header}\n{body}".rstrip()
     if query_param_hint and status is not None and 400 <= status < 500:
         message += (
             "\n\nNote: -f/-F fields were sent as a JSON body (they imply POST). "
             "For query parameters on a read, use '-X GET' or put them in the "
             'path: api "<path>?key=value".'
         )
-    click.echo(message, err=True)
+    if message:
+        click.echo(message, err=True)
     raise SystemExit(1)
+
+
+def _header_lines(result: Any, status: int) -> "list[str]":
+    """Yield the HTTP status line and response header lines, gh/curl-style."""
+    raw = getattr(result, "_response", None)
+    version = getattr(raw, "version", 11) if raw is not None else 11
+    reason = getattr(result, "reason", "") or ""
+    lines = [f"HTTP/{version // 10}.{version % 10} {status} {reason}".rstrip()]
+    if raw is not None:
+        lines.extend(f"{name}: {value}" for name, value in raw.getheaders())
+    return lines
 
 
 def _emit_success(value: Any, jq_program: Any = None) -> None:

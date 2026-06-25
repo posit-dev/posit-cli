@@ -10,7 +10,7 @@ from rsconnect.http_support import HTTPResponse
 from posit_cli.__main__ import cli
 
 
-def _http_response(status=None, reason="", body="", content_type="application/json"):
+def _http_response(status=None, reason="", body="", content_type="application/json", headers=None):
     """Build a real rsconnect HTTPResponse for a received response.
 
     Using the real class (not a mock) is deliberate: a previous bug hid behind a
@@ -19,7 +19,10 @@ def _http_response(status=None, reason="", body="", content_type="application/js
     raw = MagicMock()
     raw.status = status
     raw.reason = reason
+    raw.version = 11
     raw.getheader.return_value = content_type
+    # _header_lines (for --include) iterates the raw response's getheaders().
+    raw.getheaders.return_value = list((headers or {"Content-Type": content_type}).items())
     return HTTPResponse("https://example.test/v1", response=raw, body=body)
 
 
@@ -184,6 +187,50 @@ def test_jq_not_applied_to_error_response(runner):
     # Errors are surfaced verbatim on stderr, never filtered through jq.
     assert result.exit_code == 1
     assert "HTTP 404 Not Found" in result.output
+    assert "nope" in result.output
+
+
+def test_include_prints_status_line_and_headers(runner):
+    resp = _http_response(
+        status=200,
+        reason="OK",
+        body=json.dumps({"username": "neal"}),
+        headers={"Content-Type": "application/json", "X-Connect": "1"},
+    )
+    result, _, _ = _invoke(runner, ["v1/user", "-i"], request_return=resp)
+    assert result.exit_code == 0, result.output
+    assert "HTTP/1.1 200 OK" in result.output
+    assert "X-Connect: 1" in result.output
+    # Body still follows the headers.
+    assert '"username": "neal"' in result.output
+
+
+def test_include_bypasses_tweak_response(runner):
+    # --include must neutralize RSConnectClient's 2xx-JSON unwrapping so the raw
+    # HTTPResponse (with status/headers) comes back.
+    with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
+        ce = Executor.return_value
+        ce.client.request.return_value = _http_response(
+            status=200, reason="OK", body=json.dumps({"ok": True})
+        )
+        result = runner.invoke(cli, ["connect", "api", "v1/user", "-i"])
+    assert result.exit_code == 0, result.output
+    # The identity override was installed on the client.
+    assert ce.client._tweak_response("x") == "x"
+
+
+def test_include_with_jq_filters_body_after_headers(runner):
+    resp = _http_response(status=200, reason="OK", body=json.dumps({"username": "neal"}))
+    result, _, _ = _invoke(runner, ["v1/user", "-i", "-q", ".username"], request_return=resp)
+    assert "HTTP/1.1 200 OK" in result.output
+    assert "neal" in result.output
+
+
+def test_include_on_error_still_exits_nonzero(runner):
+    resp = _http_response(status=404, reason="Not Found", body=json.dumps({"error": "nope"}))
+    result, _, _ = _invoke(runner, ["v1/missing", "-i"], request_return=resp)
+    assert result.exit_code == 1
+    assert "HTTP/1.1 404 Not Found" in result.output
     assert "nope" in result.output
 
 

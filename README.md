@@ -28,6 +28,13 @@ $ posit connect api "v1/content?limit=3" -q '.[].name'
 `-q`/`--jq` runs the response through [jq](https://jqlang.github.io/jq/), like
 `gh api --jq`: string results print unquoted, one per line.
 
+`-i`/`--include` prepends the HTTP status line and response headers to the
+output (handy for inspecting rate limits, request IDs, or the server version):
+
+```console
+$ posit connect api v1/user -i
+```
+
 ### Query parameters vs. request body
 
 Like `gh api`, `-f`/`-F` fields default to a **POST request body** (adding any
