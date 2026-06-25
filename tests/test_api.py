@@ -38,7 +38,7 @@ def _invoke(runner, args, request_return=None):
 
     Returns (result, request_mock) so tests can assert on the forwarded call.
     """
-    with patch("posit_cli.api.RSConnectExecutor") as Executor:
+    with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
         ce = Executor.return_value
         ce.client.request.return_value = (
             request_return if request_return is not None else {"ok": True}
