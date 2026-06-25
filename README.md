@@ -102,6 +102,16 @@ $ posit connect api v1/content -f name=my-app              # POST body (creates 
 `posit` wraps [`rsconnect-python`](https://github.com/posit-dev/rsconnect-python):
 it re-exposes the full `rsconnect` command set under `posit connect`, in addition to the `api` utility.
 
+## Using `posit` with Claude Code
+
+This repo ships a skill (at [`skills/posit-cli/`](skills/posit-cli/)) that teaches
+coding agents to drive `posit` — auth, `posit connect api`, and deploys. Install
+it with the [`skills`](https://www.skills.sh/) CLI:
+
+```console
+npx skills add posit-dev/posit-cli
+```
+
 ## Status
 
 Early/experimental. Connect only for now but eager to add other products too!
