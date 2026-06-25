@@ -492,10 +492,20 @@ def _same_host(a: Any, b: Any) -> bool:
     """
     if (a.hostname or "").lower() != (b.hostname or "").lower():
         return False
+    return _effective_port(a) == _effective_port(b)
+
+
+def _effective_port(parsed: Any) -> Optional[int]:
+    """The URL's port, defaulting by scheme. Malformed ports become a CLI error.
+
+    ``urlparse(...).port`` raises ``ValueError`` on a non-numeric port (e.g.
+    ``:abc``); surface that as a clean error rather than a traceback.
+    """
     defaults = {"http": 80, "https": 443}
-    port_a = a.port or defaults.get(a.scheme)
-    port_b = b.port or defaults.get(b.scheme)
-    return port_a == port_b
+    try:
+        return parsed.port or defaults.get(parsed.scheme)
+    except ValueError as exc:
+        raise click.ClickException(f"invalid port in URL: {exc}") from exc
 
 
 def _next_page_path(next_url: str) -> str:

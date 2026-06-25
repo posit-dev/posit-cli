@@ -420,6 +420,15 @@ def test_full_url_host_match_is_case_insensitive(runner):
     assert request.call_args.args[1] == "v1/user"
 
 
+def test_full_url_malformed_port_is_clean_error(runner):
+    # A non-numeric port must produce a clean CLI error, not a traceback.
+    result, request, _ = _invoke(runner, ["https://c.example:abc/__api__/v1/user"])
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "invalid port" in result.output
+    assert not request.called
+
+
 def test_full_url_wrong_host_is_rejected(runner):
     result, request, _ = _invoke(runner, ["https://other.example/__api__/v1/user"])
     assert result.exit_code != 0
