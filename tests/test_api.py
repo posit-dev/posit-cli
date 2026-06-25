@@ -234,6 +234,21 @@ def test_include_on_error_still_exits_nonzero(runner):
     assert "nope" in result.output
 
 
+def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
+    # A jq runtime failure on a 2xx response must abort before emitting headers,
+    # so a failed command never leaks partial output (headers) to stdout.
+    resp = _http_response(status=200, reason="OK", body=json.dumps({"username": "neal"}))
+    with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
+        ce = Executor.return_value
+        ce.client.request.return_value = resp
+        result = runner.invoke(
+            cli, ["connect", "api", "v1/user", "-i", "-q", 'error("boom")']
+        )
+    assert result.exit_code != 0
+    assert result.stdout == ""  # no headers, no body
+    assert "jq:" in result.stderr
+
+
 def test_no_tls_verify_flag_sets_insecure(runner):
     # We deliberately renamed rsconnect's --insecure to --no-tls-verify (and
     # dropped -i, reserving it for a future gh-style --include). Guard the wiring.

@@ -294,16 +294,24 @@ def _emit(
 
     success = status is not None and 200 <= status < 300
 
-    # In include mode the status/headers go to the same stream as the body:
-    # stdout on success, stderr on failure (matching our errors-to-stderr rule).
+    if success:
+        # Render the body (running jq) *before* emitting anything: a jq runtime
+        # failure must abort with nothing on stdout, not leak the headers first.
+        rendered = _render_success(payload, jq_program)
+        if include:
+            for line in _header_lines(result, status):
+                click.echo(line)
+            click.echo("")  # blank line between headers and body
+        if rendered is not None:
+            click.echo(rendered)
+        return
+
+    # Failure: in include mode the status line + headers go to stderr too,
+    # matching our errors-to-stderr rule.
     if include and status is not None:
         for line in _header_lines(result, status):
-            click.echo(line, err=not success)
-        click.echo("", err=not success)  # blank line between headers and body
-
-    if success:
-        _emit_success(payload, jq_program)
-        return
+            click.echo(line, err=True)
+        click.echo("", err=True)
 
     if status is None:
         # Transport failure: no response or headers exist (include is moot here).
@@ -342,18 +350,21 @@ def _header_lines(result: Any, status: int) -> "list[str]":
     return lines
 
 
-def _emit_success(value: Any, jq_program: Any = None) -> None:
-    """Print a successful response body, optionally filtered through jq.
+def _render_success(value: Any, jq_program: Any = None) -> Optional[str]:
+    """Render a successful response body, optionally filtered through jq.
 
-    Mirrors ``gh api``: with a jq filter, each result prints on its own line --
-    strings raw (unquoted), everything else as compact JSON. Without a filter,
-    the body is pretty-printed. Empty bodies (e.g. 204) print nothing.
+    Returns the text to print, or None for an empty body (e.g. 204). Mirrors
+    ``gh api``: with a jq filter, each result is on its own line -- strings raw
+    (unquoted), everything else compact JSON; without a filter, pretty-printed.
+
+    This *renders* rather than prints so the caller can emit headers and body
+    together only after rendering succeeds: a jq runtime failure must abort
+    before any output, not leak partial output (e.g. headers) to stdout.
     """
     if value in (None, ""):
-        return
+        return None
     if jq_program is None:
-        click.echo(_dumps(value))
-        return
+        return _dumps(value)
     # A filter can compile cleanly yet fail at runtime (e.g. error(...) or a
     # type mismatch against the actual payload). .all() materializes every
     # result first, so a failure raises here before anything is printed --
@@ -362,8 +373,7 @@ def _emit_success(value: Any, jq_program: Any = None) -> None:
         results = jq_program.input_value(value).all()
     except ValueError as exc:
         raise click.ClickException(f"jq: {exc}") from exc
-    for item in results:
-        click.echo(item if isinstance(item, str) else json.dumps(item))
+    return "\n".join(item if isinstance(item, str) else json.dumps(item) for item in results)
 
 
 def _dumps(value: Any) -> str:
