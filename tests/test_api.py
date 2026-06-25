@@ -181,6 +181,27 @@ def test_jq_runtime_error_is_clean_not_traceback(runner):
     assert "jq:" in result.output
 
 
+def test_jq_zero_results_prints_nothing(runner):
+    # A filter matching nothing must produce no output (not a blank line), so
+    # automation can use empty stdout as a "no match" signal.
+    result, _, _ = _invoke(
+        runner, ["v1/content", "-q", ".[] | select(.id == 999)"], request_return=[{"id": 1}]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output == ""
+
+
+def test_include_jq_zero_results_no_body_blank(runner):
+    resp = _http_response(status=200, reason="OK", body=json.dumps([{"id": 1}]))
+    result, _, _ = _invoke(
+        runner, ["v1/content", "-i", "-q", ".[] | select(.id == 999)"], request_return=resp
+    )
+    assert "HTTP/1.1 200 OK" in result.output
+    # Headers, a single blank separator, and no body line.
+    _, _, body_part = result.output.partition("\n\n")
+    assert body_part == ""
+
+
 def test_jq_not_applied_to_error_response(runner):
     err = _http_response(status=404, reason="Not Found", body=json.dumps({"error": "nope"}))
     result, _, _ = _invoke(runner, ["v1/missing", "-q", ".error"], request_return=err)

@@ -519,6 +519,10 @@ def _render_success(value: Any, jq_program: Any = None) -> Optional[str]:
         results = jq_program.input_value(value).all()
     except ValueError as exc:
         raise click.ClickException(f"jq: {exc}") from exc
+    if not results:
+        # Zero matches -> no body (a blank line would falsely signal output).
+        # This is distinct from a single empty-string result, which prints "".
+        return None
     return "\n".join(item if isinstance(item, str) else json.dumps(item) for item in results)
 
 
