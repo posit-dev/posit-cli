@@ -1,17 +1,55 @@
 # posit-cli
 
-A single, friendly command-line interface for [Posit Connect](https://posit.co/products/enterprise/connect/),
-in the spirit of [`gh`](https://cli.github.com/).
-
-`posit` wraps [`rsconnect-python`](https://github.com/posit-dev/rsconnect-python):
-it re-exposes the full `rsconnect` command set under `posit connect` and adds a
-`gh api`-style raw REST command.
+A friendly command-line interface for Posit products, in the spirit of [`gh`](https://cli.github.com/).
 
 ```console
-$ posit connect login --server https://connect.example.com   # OAuth, tokens in your OS keyring
-$ posit connect api v1/user                                   # gh-api-style raw request
+$ posit connect login https://connect.example.com             # OAuth, tokens in your OS keyring
+$ posit connect api v1/user -q .username                      # gh-api-style raw request
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
 ```
+
+## Installation
+
+`posit-cli` isn't on PyPI yet. Install the latest version straight from GitHub
+with [`uv`](https://docs.astral.sh/uv/):
+
+```console
+uv tool install git+https://github.com/posit-dev/posit-cli.git
+```
+
+This puts the `posit` executable on your `PATH`. To upgrade later, run
+`uv tool upgrade posit-cli`.
+
+## Getting started
+
+**1. Log in.** Point `posit` at your Connect server and authenticate. This runs
+an OAuth 2.1 flow in your browser and saves the tokens in your OS keyring, so
+you only do it once per server:
+
+```console
+$ posit connect login https://connect.example.com
+```
+
+**2. Try a request.** Confirm you're connected by asking Connect who you are:
+
+```console
+$ posit connect api v1/user -q .username
+```
+
+**3. Deploy something.** Anything `rsconnect` can deploy, `posit` can too:
+
+```console
+$ posit connect deploy streamlit ./my-app
+```
+
+That's it — from here, explore `posit connect --help` for the full command set.
+
+## Authentication
+
+`posit connect login` runs an OAuth 2.1 flow and stores tokens in your OS
+keyring; `posit connect api` and the deploy commands reuse those credentials
+automatically (including token refresh). You can also point at a server ad hoc
+with `--server`/`CONNECT_SERVER` and `--api-key`/`CONNECT_API_KEY`.
 
 ## `posit connect api`
 
@@ -54,27 +92,16 @@ field flips the method to POST unless you pass `-X`). To send **query
 parameters** on a read, put them in the path or force `GET`:
 
 ```console
-$ posit connect api "v1/content?owner_guid=...&limit=10"   # query params in the path
-$ posit connect api v1/content -X GET -f limit=10          # or force GET
+$ posit connect api "v1/users?page_size=5"   # query params in the path
+$ posit connect api v1/users -X GET -f page_size=5          # or force GET
 $ posit connect api v1/content -f name=my-app              # POST body (creates content)
 ```
 
-## Installation
+## `posit connect *`
 
-```console
-uv tool install posit-cli
-```
-
-## Authentication
-
-`posit connect login` runs an OAuth 2.1 flow and stores tokens in your OS
-keyring; `posit connect api` and the deploy commands reuse those credentials
-automatically (including token refresh). You can also point at a server ad hoc
-with `--server`/`CONNECT_SERVER` and `--api-key`/`CONNECT_API_KEY`.
-
-> `posit connect add` stores a **plaintext API key** in `servers.json`. Prefer
-> `posit connect login` where possible.
+`posit` wraps [`rsconnect-python`](https://github.com/posit-dev/rsconnect-python):
+it re-exposes the full `rsconnect` command set under `posit connect`, in addition to the `api` utility.
 
 ## Status
 
-Early/experimental. Connect only for now; Workbench support is deferred.
+Early/experimental. Connect only for now but eager to add other products too!
