@@ -50,8 +50,8 @@ preference:
    and stores tokens in your OS keyring; `api` and the deploy commands reuse them
    automatically, refreshing on expiry:
    ```console
-   posit connect login -s https://connect.example.com
-   posit connect login -s https://connect.example.com --use-device-code   # headless
+   posit connect login https://connect.example.com
+   posit connect login https://connect.example.com --use-device-code   # headless
    ```
 2. **Ad hoc flags / env vars.** Point at a server for a single command:
    ```console
