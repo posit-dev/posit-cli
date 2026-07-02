@@ -8,6 +8,8 @@ $ posit connect api v1/user -q .username                      # gh-api-style raw
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
 ```
 
+This project is in early-stage development and so far only supports Posit Connect's APIs.
+
 ## Installation
 
 `posit-cli` isn't on PyPI yet. Install the latest version straight from GitHub
@@ -120,7 +122,3 @@ it with the [`skills`](https://www.skills.sh/) CLI:
 ```console
 npx skills add posit-dev/posit-cli
 ```
-
-## Status
-
-Early/experimental. Connect only for now but eager to add other products too!
