@@ -1,0 +1,36 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - uses: extractions/setup-just@v3
+      - name: assert tag matches pyproject version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(just version)"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::tag '${GITHUB_REF_NAME}' does not match pyproject version '$ver'"
+            exit 1
+          fi
+      - name: assert tag is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag '${GITHUB_REF_NAME}' points to a commit that is not on main"
+            exit 1
+          fi
+      - run: just build
+      - name: smoke test the built wheel
+        run: |
+          WHL=$(ls dist/*.whl | head -1)
+          uv run --no-project --with "$WHL" posit --help
+      - uses: pypa/gh-action-pypi-publish@release/v1

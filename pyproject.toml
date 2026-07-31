@@ -4,16 +4,13 @@ version = "0.1.0"
 description = "A single, friendly command-line interface for Posit Connect, in the spirit of gh."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "Posit Software, PBC" }]
 dependencies = [
     # posit-cli reuses rsconnect-python's *internal* API (RSConnectExecutor,
     # RSConnectClient). These have no stability contract, so re-verify the internals
     # on bumps. See tests/test_rsconnect_contract.py.
-    #
-    # TEMPORARY: tracking rsconnect's main branch for the unreleased OAuth
-    # `login`/`logout` commands. Pin back to a released ">=1.30,<2" once that ships.
-    "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python.git@main",
+    "rsconnect-python>=1.30,<2",
     # rsconnect imports `keyring` optionally; we depend on it directly so OAuth
     # tokens land in the OS keyring.
     "keyring>=23.0",
@@ -27,15 +24,17 @@ posit = "posit_cli.__main__:cli"
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+lint = ["ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.metadata]
-# Required for the temporary git dependency on rsconnect-python's main branch.
-# Drop once we pin back to a released rsconnect-python.
-allow-direct-references = true
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/posit_cli"]
+
+[tool.ruff]
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

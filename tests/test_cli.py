@@ -23,9 +23,7 @@ def test_connect_mounts_api_command(runner):
     assert "api" in result.output
 
 
-# rsconnect commands we expect to re-expose under `posit connect`. `login`/`logout`
-# (OAuth) come from the rsconnect main-branch build we currently track; they should
-# remain present once that work is released.
+# rsconnect commands we expect to re-expose under `posit connect`.
 EXPECTED_RSCONNECT_COMMANDS = [
     "add",
     "deploy",
