@@ -32,8 +32,5 @@ jobs:
             exit 1
           fi
       - run: just build
-      - name: smoke test the built wheel
-        run: |
-          WHL=$(ls dist/*.whl | head -1)
-          uv run --no-project --with "$WHL" posit --help
+      - run: just smoke
       - uses: pypa/gh-action-pypi-publish@release/v1

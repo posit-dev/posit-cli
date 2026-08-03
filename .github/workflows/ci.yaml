@@ -14,6 +14,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
       - uses: extractions/setup-just@v4
+      # Fail fast if uv.lock has drifted from pyproject.toml.
+      - run: uv lock --locked
       - run: just lint
 
   test:
@@ -44,3 +46,4 @@ jobs:
       - uses: astral-sh/setup-uv@v9.0.0
       - uses: extractions/setup-just@v4
       - run: just build
+      - run: just smoke

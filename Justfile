@@ -18,6 +18,13 @@ fmt:
 build:
     uv build
 
+# Smoke-test the most recently built wheel (no project install)
+smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    WHL=$(ls dist/*.whl | head -1)
+    uv run --no-project --with "$WHL" posit --help
+
 # Install the most recently built wheel into the active environment
 install: build
     uv pip install dist/*.whl
