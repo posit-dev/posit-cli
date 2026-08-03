@@ -265,8 +265,12 @@ def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
         ce.client.request.return_value = resp
         result = runner.invoke(cli, ["connect", "api", "v1/user", "-i", "-q", 'error("boom")'])
     assert result.exit_code != 0
-    assert result.stdout == ""  # no headers, no body
-    assert "jq:" in result.stderr
+    # Checked against combined output, not result.stdout/.stderr separately:
+    # Click's CliRunner only captures those on separate streams in >=8.2
+    # (older click, still resolved for our py3.8/3.9 floor, always mixes them).
+    assert "HTTP/" not in result.output  # no header lines leaked
+    assert "neal" not in result.output  # no body leaked
+    assert "jq: boom" in result.output
 
 
 def _paginated_invoke(runner, args, pages):

@@ -9,23 +9,26 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
-      - uses: extractions/setup-just@v3
+      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: extractions/setup-just@v4
       - name: assert tag matches pyproject version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           ver="$(just version)"
-          if [ "$tag" != "$ver" ]; then
-            echo "::error::tag '${GITHUB_REF_NAME}' does not match pyproject version '$ver'"
+          if [ "$TAG" != "v$ver" ]; then
+            echo "::error::tag '${TAG}' does not match pyproject version 'v${ver}'"
             exit 1
           fi
       - name: assert tag is on main
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::tag '${GITHUB_REF_NAME}' points to a commit that is not on main"
+            echo "::error::tag '${TAG}' points to a commit that is not on main"
             exit 1
           fi
       - run: just build

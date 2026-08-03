@@ -13,7 +13,7 @@ from .api import api as api_cmd
 
 _epilog = (
     "Tip: prefer 'posit connect login' (OAuth, tokens stored in your OS "
-    "keyring) over 'posit connect add' (stores a plaintext API key)."
+    "keyring) over 'posit connect server add' (stores a plaintext API key)."
 )
 
 
