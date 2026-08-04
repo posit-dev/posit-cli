@@ -22,12 +22,12 @@ build:
 smoke:
     #!/usr/bin/env bash
     set -euo pipefail
-    WHL=$(ls dist/*.whl | head -1)
+    WHL=$(ls -t dist/*.whl | head -1)
     uv run --no-project --with "$WHL" posit --help
 
 # Install the most recently built wheel into the active environment
 install: build
-    uv pip install dist/*.whl
+    uv pip install "$(ls -t dist/*.whl | head -1)"
 
 # Print the current version
 version:

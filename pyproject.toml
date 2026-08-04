@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "A single, friendly command-line interface for Posit Connect, in the spirit of gh."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Posit Software, PBC" }]
 dependencies = [
     # posit-cli reuses rsconnect-python's *internal* API (RSConnectExecutor,
