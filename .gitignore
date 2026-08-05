@@ -9,6 +9,9 @@ dist/
 .venv/
 venv/
 
+# Written at build time by hatch-vcs
+/src/posit_cli/_version.py
+
 # Tooling
 .pytest_cache/
 .ruff_cache/

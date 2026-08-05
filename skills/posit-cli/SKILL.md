@@ -208,15 +208,21 @@ These are rsconnect commands — run `posit connect <command> --help` for detail
 
 ## Installing the CLI
 
-`posit-cli` isn't on PyPI yet; install from GitHub with [`uv`](https://docs.astral.sh/uv/):
+Install from PyPI with [`uv`](https://docs.astral.sh/uv/):
 
 ```console
-uv tool install git+https://github.com/posit-dev/posit-cli.git   # `posit` onto your PATH
-uv tool upgrade posit-cli                                         # later, to update
+uv tool install posit-cli    # `posit` onto your PATH
+uv tool upgrade posit-cli    # later, to update
 ```
 
-If GitHub is set up for SSH auth, use the `git+ssh://` form instead (uv requires
-the `git@` username):
+For unreleased changes, install from GitHub instead:
+
+```console
+uv tool install git+https://github.com/posit-dev/posit-cli.git
+```
+
+If GitHub is set up for SSH auth, use the `git+ssh://` form (uv requires the
+`git@` username):
 
 ```console
 uv tool install git+ssh://git@github.com/posit-dev/posit-cli.git

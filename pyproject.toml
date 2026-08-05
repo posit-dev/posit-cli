@@ -1,6 +1,7 @@
 [project]
 name = "posit-cli"
-version = "0.1.0"
+# The version comes from the git tag, through hatch-vcs. Never hard-code it here.
+dynamic = ["version"]
 description = "A single, friendly command-line interface for Posit Connect, in the spirit of gh."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -28,8 +29,16 @@ test = ["pytest>=7"]
 lint = ["ruff>=0.6"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+# Write the resolved version into the package. An sdist has no git metadata, so a
+# wheel built from an sdist reads this file instead of asking git.
+[tool.hatch.build.hooks.vcs]
+version-file = "src/posit_cli/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/posit_cli"]
