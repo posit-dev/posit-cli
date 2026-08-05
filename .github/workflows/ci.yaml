@@ -43,6 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        # hatch-vcs reads the version from the tags, so fetch them.
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v9.0.0
       - uses: extractions/setup-just@v4
       - run: just build

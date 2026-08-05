@@ -12,21 +12,27 @@ This project is in early-stage development and so far only supports Posit Connec
 
 ## Installation
 
-`posit-cli` isn't on PyPI yet. Install the latest version straight from GitHub
-with [`uv`](https://docs.astral.sh/uv/):
+Install [`posit-cli` from PyPI](https://pypi.org/project/posit-cli/) with
+[`uv`](https://docs.astral.sh/uv/):
+
+```console
+uv tool install posit-cli
+```
+
+To get unreleased changes, install from GitHub instead:
 
 ```console
 uv tool install git+https://github.com/posit-dev/posit-cli.git
 ```
 
-If you authenticate to GitHub over SSH, use the `git+ssh://` form instead (uv
-requires the `git@` username):
+If you authenticate to GitHub over SSH, use the `git+ssh://` form (uv requires
+the `git@` username):
 
 ```console
 uv tool install git+ssh://git@github.com/posit-dev/posit-cli.git
 ```
 
-Either way this puts the `posit` executable on your `PATH`. To upgrade later, run
+Each of these puts the `posit` executable on your `PATH`. To upgrade later, run
 `uv tool upgrade posit-cli`. See uv's
 [Git authentication docs](https://docs.astral.sh/uv/concepts/authentication/git/)
 for tokens and other hosts.

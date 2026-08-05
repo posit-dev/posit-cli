@@ -29,9 +29,9 @@ smoke:
 install: build
     uv pip install "$(ls -t dist/*.whl | head -1)"
 
-# Print the current version
+# Print the version that a build gets from the current git state
 version:
-    @uv version --short
+    @uvx hatch version
 
 # Remove build/test artifacts
 clean:

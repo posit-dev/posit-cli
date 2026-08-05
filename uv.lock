@@ -729,7 +729,6 @@ wheels = [
 
 [[package]]
 name = "posit-cli"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -759,7 +758,7 @@ requires-dist = [
     { name = "rsconnect-python", specifier = ">=1.30,<2" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.6" },
 ]
-provides-extras = ["test", "lint"]
+provides-extras = ["lint", "test"]
 
 [[package]]
 name = "pycparser"

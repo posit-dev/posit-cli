@@ -37,4 +37,7 @@ posit-sdk) and the OAuth-release gotcha.
   `RSConnectClient`), which has no stability contract. `tests/test_rsconnect_contract.py` guards
   the surface we depend on; pin the rsconnect version and re-verify on bumps.
 
+- The git tag sets the version, through `hatch-vcs`. `pyproject.toml` has no `version` field.
+  Do not add one.
+
 See `RELEASE.md` for how to cut a release to PyPI.
