@@ -36,3 +36,5 @@ posit-sdk) and the OAuth-release gotcha.
 - `posit connect api` uses rsconnect's *internal* client (`RSConnectExecutor` ->
   `RSConnectClient`), which has no stability contract. `tests/test_rsconnect_contract.py` guards
   the surface we depend on; pin the rsconnect version and re-verify on bumps.
+
+See `RELEASE.md` for how to cut a release to PyPI.

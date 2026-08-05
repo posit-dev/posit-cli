@@ -75,9 +75,7 @@ def test_fields_imply_post_and_become_body(runner):
 
 
 def test_json_body_preserves_user_headers(runner):
-    _, request, _ = _invoke(
-        runner, ["v1/content", "-f", "name=app", "-H", "X-Test: 1"]
-    )
+    _, request, _ = _invoke(runner, ["v1/content", "-f", "name=app", "-H", "X-Test: 1"])
     headers = request.call_args.kwargs["headers"]
     assert headers["X-Test"] == "1"  # finding 2: must survive a JSON body
     assert headers["Content-Type"] == "application/json"
@@ -141,7 +139,9 @@ def test_credential_options_passed_to_executor(runner):
 
 
 def test_jq_extracts_scalar_unquoted(runner):
-    result, _, _ = _invoke(runner, ["v1/user", "-q", ".username"], request_return={"username": "neal"})
+    result, _, _ = _invoke(
+        runner, ["v1/user", "-q", ".username"], request_return={"username": "neal"}
+    )
     assert result.exit_code == 0, result.output
     # gh-style: a string result prints raw, without surrounding quotes.
     assert result.output.strip() == "neal"
@@ -263,12 +263,14 @@ def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
     with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
         ce = Executor.return_value
         ce.client.request.return_value = resp
-        result = runner.invoke(
-            cli, ["connect", "api", "v1/user", "-i", "-q", 'error("boom")']
-        )
+        result = runner.invoke(cli, ["connect", "api", "v1/user", "-i", "-q", 'error("boom")'])
     assert result.exit_code != 0
-    assert result.stdout == ""  # no headers, no body
-    assert "jq:" in result.stderr
+    # Checked against combined output, not result.stdout/.stderr separately:
+    # Click's CliRunner only captures those on separate streams in >=8.2
+    # (older click, still resolved for our py3.8/3.9 floor, always mixes them).
+    assert "HTTP/" not in result.output  # no header lines leaked
+    assert "neal" not in result.output  # no body leaked
+    assert "jq: boom" in result.output
 
 
 def _paginated_invoke(runner, args, pages):
@@ -446,9 +448,7 @@ def test_no_tls_verify_flag_sets_insecure(runner):
 def test_input_conflicts_with_fields(runner, tmp_path):
     body_file = tmp_path / "b.json"
     body_file.write_text("{}")
-    result, _, _ = _invoke(
-        runner, ["v1/content", "--input", str(body_file), "-f", "a=b"]
-    )
+    result, _, _ = _invoke(runner, ["v1/content", "--input", str(body_file), "-f", "a=b"])
     assert result.exit_code != 0
     assert "cannot be combined" in result.output
 
@@ -470,7 +470,9 @@ def test_non_2xx_response_exits_nonzero(runner):
 def test_implicit_post_4xx_hints_query_params(runner):
     # gh parity: bare -f implies POST. When that POST 4xxs, nudge toward query
     # params (the common cause is using -f to filter a read).
-    err = _http_response(status=400, reason="Bad Request", body=json.dumps({"error": "unknown field"}))
+    err = _http_response(
+        status=400, reason="Bad Request", body=json.dumps({"error": "unknown field"})
+    )
     result, _, _ = _invoke(runner, ["v1/content", "-f", "limit=2"], request_return=err)
     assert result.exit_code == 1
     assert "-X GET" in result.output
@@ -480,7 +482,9 @@ def test_implicit_post_4xx_hints_query_params(runner):
 def test_explicit_method_4xx_omits_hint(runner):
     # If the user chose the method, the implicit-POST hint would be noise.
     err = _http_response(status=400, reason="Bad Request", body=json.dumps({"error": "nope"}))
-    result, _, _ = _invoke(runner, ["v1/content", "-X", "POST", "-f", "name=x"], request_return=err)
+    result, _, _ = _invoke(
+        runner, ["v1/content", "-X", "POST", "-f", "name=x"], request_return=err
+    )
     assert result.exit_code == 1
     assert "query parameters" not in result.output
 

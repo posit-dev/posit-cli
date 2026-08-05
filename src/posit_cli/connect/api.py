@@ -70,9 +70,7 @@ def _split_headers(headers: Tuple[str, ...]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for header in headers:
         if ":" not in header:
-            raise click.BadParameter(
-                f"expected key:value, got {header!r}", param_hint="--header"
-            )
+            raise click.BadParameter(f"expected key:value, got {header!r}", param_hint="--header")
         key, value = header.split(":", 1)
         out[key.strip()] = value.strip()
     return out
@@ -445,9 +443,7 @@ def _request_all_pages(
     return _merge_pages(pages)
 
 
-def _split_query(
-    path: str, query_params: Optional[Dict[str, Any]]
-) -> Tuple[str, Dict[str, Any]]:
+def _split_query(path: str, query_params: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
     """Split any ``?query`` off ``path`` and merge it with ``query_params``.
 
     Pagination needs the query as a mutable dict so it can advance the cursor or
@@ -517,7 +513,7 @@ def _next_page_path(next_url: str) -> str:
     parsed = urlparse(next_url)
     marker = "/__api__/"
     idx = parsed.path.find(marker)
-    rel = parsed.path[idx + len(marker):] if idx != -1 else parsed.path.lstrip("/")
+    rel = parsed.path[idx + len(marker) :] if idx != -1 else parsed.path.lstrip("/")
     return f"{rel}?{parsed.query}" if parsed.query else rel
 
 

@@ -1,0 +1,37 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: extractions/setup-just@v4
+      - name: assert tag matches pyproject version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          ver="$(just version)"
+          if [ "$TAG" != "v$ver" ]; then
+            echo "::error::tag '${TAG}' does not match pyproject version 'v${ver}'"
+            exit 1
+          fi
+      - name: assert tag is on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag '${TAG}' points to a commit that is not on main"
+            exit 1
+          fi
+      - run: just build
+      - run: just smoke
+      - uses: pypa/gh-action-pypi-publish@release/v1
