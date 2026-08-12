@@ -184,7 +184,7 @@ def _show_banner(project_dir: str) -> None:
         click.style(" | ", fg="bright_blue", bold=True)
         + click.style("|  |", fg="blue", bold=True)
         + " "
-        + click.style("Connect", bold=True)
+        + click.style("Posit Connect", bold=True)
     )
     click.echo(
         click.style("  \\ ", fg="bright_blue", bold=True)
