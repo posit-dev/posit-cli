@@ -169,6 +169,10 @@ def test_interactive_init_collects_python_answers(runner):
         "package_manager": "uv",
     }
     assert request.files == ("*",)
+    assert "Connect" in result.output
+    assert "Configure a project for Posit Connect" in result.output
+    assert "[OK] Publisher project initialized" in result.output
+    assert "posit connect publish . --server <connect-url>" in result.output
 
 
 def test_interactive_quarto_asks_mode_and_version(runner):
