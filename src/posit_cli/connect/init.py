@@ -4,7 +4,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 import questionary
@@ -14,7 +14,30 @@ from rsconnect.publisher import CONTENT_TYPES, InitRequest, initialize_project
 
 _CONTENT_TYPES_BY_NAME = {spec.type: spec for spec in CONTENT_TYPES}
 _CONTENT_TYPE_NAMES = tuple(_CONTENT_TYPES_BY_NAME)
-_PYTHON_PACKAGE_MANAGERS = ("pip", "uv", "none")
+_PYTHON_PACKAGE_MANAGERS = ("uv", "pip", "none")
+_OTHER_ENTRYPOINT = "__other_entrypoint__"
+_OTHER_PACKAGE_FILE = "__other_package_file__"
+_PYTHON_API_TYPES = {"python-fastapi", "python-flask", "python-dash"}
+_ENTRYPOINT_PRIORITY = (
+    "app.py",
+    "main.py",
+    "application.py",
+    "api.py",
+    "report.ipynb",
+    "notebook.ipynb",
+    "report.qmd",
+    "index.qmd",
+    "index.html",
+    "index.htm",
+    "app.js",
+    "server.js",
+    "index.js",
+    "main.js",
+    "app.ts",
+    "server.ts",
+    "index.ts",
+    "main.ts",
+)
 _QUESTIONARY_STYLE = questionary.Style(
     [
         ("qmark", "fg:#44739b bold"),
@@ -33,11 +56,72 @@ def _is_interactive() -> bool:
     return sys.stdin.isatty()
 
 
-def _default_package_settings(project_dir: str) -> Tuple[str, str]:
-    if os.path.exists(os.path.join(project_dir, "pyproject.toml")):
-        manager = "uv" if os.path.exists(os.path.join(project_dir, "uv.lock")) else "pip"
-        return "pyproject.toml", manager
-    return "requirements.txt", "pip"
+def _entrypoint_example(content_type: str) -> str:
+    example = _CONTENT_TYPES_BY_NAME[content_type].entrypoint_example
+    if content_type in _PYTHON_API_TYPES:
+        return example.split(":", 1)[0]
+    return example
+
+
+def _entrypoint_suffixes(content_type: str) -> Tuple[str, ...]:
+    if content_type.startswith("python-"):
+        return (".py",)
+    if content_type.startswith("jupyter-"):
+        return (".ipynb",)
+    if content_type.startswith("quarto-"):
+        return (".qmd",)
+    if content_type == "html":
+        return (".html", ".htm")
+    if content_type == "nodejs":
+        return (".js", ".mjs", ".cjs", ".ts")
+    return ()
+
+
+def _entrypoint_choices(project_dir: str, content_type: str) -> Tuple[List[Any], str]:
+    suffixes = _entrypoint_suffixes(content_type)
+    priority = {name: index for index, name in enumerate(_ENTRYPOINT_PRIORITY)}
+
+    try:
+        candidates = [
+            path.name
+            for path in Path(project_dir).iterdir()
+            if path.is_file() and not path.name.startswith(".") and path.suffix.lower() in suffixes
+        ]
+    except OSError:
+        candidates = []
+
+    candidates.sort(key=lambda name: (priority.get(name.lower(), len(priority)), name.lower()))
+    default = candidates[0] if candidates else _entrypoint_example(content_type)
+    choices = [questionary.Choice("{} (detected)".format(name), value=name) for name in candidates]
+    if not candidates:
+        choices.append(questionary.Choice(default, value=default))
+    choices.append(
+        questionary.Choice(
+            "Other - Enter a different file or module",
+            value=_OTHER_ENTRYPOINT,
+        )
+    )
+    return choices, default
+
+
+def _package_file_choices() -> Tuple[Tuple[Any, ...], str]:
+    return (
+        (
+            questionary.Choice(
+                "requirements.txt",
+                value="requirements.txt",
+            ),
+            questionary.Choice(
+                "pyproject.toml",
+                value="pyproject.toml",
+            ),
+            questionary.Choice(
+                "Other dependency file...",
+                value=_OTHER_PACKAGE_FILE,
+            ),
+        ),
+        "requirements.txt",
+    )
 
 
 def _default_title(project_dir: str, entrypoint: str) -> str:
@@ -85,12 +169,20 @@ def _confirm(message: str, **kwargs: Any) -> Any:
 
 
 def _show_banner(project_dir: str) -> None:
-    mark = click.style
     click.echo()
-    click.echo(mark("    /\\  /\\", fg="blue", bold=True))
-    click.echo(mark("   /  \\/  \\", fg="blue", bold=True) + "    " + mark("Connect", bold=True))
-    click.echo(mark("   \\  /\\  /", fg="blue", bold=True))
-    click.echo(mark("    \\/  \\/", fg="blue", bold=True))
+    click.echo(
+        click.style("  / ", fg="bright_blue", bold=True) + click.style("/\\", fg="blue", bold=True)
+    )
+    click.echo(
+        click.style("< ", fg="bright_blue", bold=True)
+        + click.style("<  >", fg="blue", bold=True)
+        + "    "
+        + click.style("Connect", bold=True)
+    )
+    click.echo(
+        click.style("  \\ ", fg="bright_blue", bold=True)
+        + click.style("\\/", fg="blue", bold=True)
+    )
     click.echo()
     click.secho("Configure a project for Posit Connect", bold=True)
     click.echo(
@@ -149,14 +241,24 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
         content_type = "quarto-" + mode
 
     spec = _CONTENT_TYPES_BY_NAME[content_type]
-    _note("Use a project-relative path; APIs may use file.py:object.")
+    entrypoint_choices, entrypoint_default = _entrypoint_choices(project_dir, content_type)
+    _note("Choose a project file, or select Other for a custom entrypoint.")
     entrypoint = _ask(
-        _text(
-            "Which file or module should Connect run?",
-            default=spec.entrypoint_example,
-            validate=_required,
+        _select(
+            "Which file should Connect run?",
+            choices=entrypoint_choices,
+            default=entrypoint_default,
         )
     )
+    if entrypoint == _OTHER_ENTRYPOINT:
+        if content_type in _PYTHON_API_TYPES:
+            _note("Use a project-relative file, or module:object for a nonstandard app object.")
+            entrypoint_message = "Enter the API entrypoint"
+        else:
+            _note("Use a path relative to the project directory.")
+            entrypoint_message = "Enter the content entrypoint"
+        entrypoint = _ask(_text(entrypoint_message, validate=_required))
+
     _note("This is the name users will see in the Connect dashboard.")
     title = _ask(
         _text(
@@ -168,25 +270,33 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
 
     python: Optional[Dict[str, str]] = None
     if spec.language == "python":
-        package_file, package_manager = _default_package_settings(project_dir)
+        package_file_choices, package_file_default = _package_file_choices()
         _note("Choose requirements.txt, pyproject.toml, or another dependency file.")
         package_file = _ask(
-            _text(
+            _select(
                 "Which file defines this project's Python dependencies?",
-                default=package_file,
-                validate=_required,
+                choices=package_file_choices,
+                default=package_file_default,
             )
         )
+        if package_file == _OTHER_PACKAGE_FILE:
+            _note("Use a dependency file path relative to the project directory.")
+            package_file = _ask(
+                _text(
+                    "Enter the Python dependency file",
+                    validate=_required,
+                )
+            )
         _note("Connect uses this installer while restoring the Python environment.")
         package_manager = _ask(
             _select(
-                "How should Connect install the Python dependencies?",
+                "Which Python package installer should Connect use?",
                 choices=(
-                    questionary.Choice("pip - Install with pip", value="pip"),
                     questionary.Choice("uv - Resolve and install with uv", value="uv"),
+                    questionary.Choice("pip - Install with pip", value="pip"),
                     questionary.Choice("none - Do not install Python packages", value="none"),
                 ),
-                default=package_manager,
+                default="uv",
             )
         )
         python = {
@@ -329,7 +439,7 @@ def init(
     if spec.language == "python" and python is None and (package_file or package_manager):
         python = {
             "package_file": package_file or "requirements.txt",
-            "package_manager": package_manager or "pip",
+            "package_manager": package_manager or "uv",
         }
     elif spec.language != "python" and (package_file or package_manager):
         raise click.UsageError("--package-file and --package-manager require Python content.")

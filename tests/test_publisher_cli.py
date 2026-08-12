@@ -147,9 +147,9 @@ def test_interactive_init_collects_python_answers(runner):
             "_ask",
             side_effect=[
                 "python-fastapi",
-                "app.py:app",
+                "app.py",
                 "Sales API",
-                "pyproject.toml",
+                "requirements.txt",
                 "uv",
                 True,
             ],
@@ -162,17 +162,85 @@ def test_interactive_init_collects_python_answers(runner):
     assert result.exit_code == 0, result.output
     request = initialize.call_args.args[0]
     assert request.content_type == "python-fastapi"
-    assert request.entrypoint == "app.py:app"
+    assert request.entrypoint == "app.py"
     assert request.title == "Sales API"
     assert request.python == {
-        "package_file": "pyproject.toml",
+        "package_file": "requirements.txt",
         "package_manager": "uv",
     }
     assert request.files == ("*",)
     assert "Connect" in result.output
+    assert "  / /\\" in result.output
+    assert "< <  >    Connect" in result.output
+    assert "  \\ \\/" in result.output
     assert "Configure a project for Posit Connect" in result.output
     assert "[OK] Publisher project initialized" in result.output
     assert "posit connect publish . --server <connect-url>" in result.output
+
+
+def test_interactive_init_detects_entrypoints_and_defaults(runner):
+    with runner.isolated_filesystem():
+        Path("worker.py").write_text("", encoding="utf-8")
+        Path("main.py").write_text("", encoding="utf-8")
+        Path("app.py").write_text("", encoding="utf-8")
+        Path("notes.txt").write_text("", encoding="utf-8")
+
+        choices, default = init_mod._entrypoint_choices(".", "python-fastapi")
+        package_choices, package_default = init_mod._package_file_choices()
+
+    assert [choice.value for choice in choices] == [
+        "app.py",
+        "main.py",
+        "worker.py",
+        init_mod._OTHER_ENTRYPOINT,
+    ]
+    assert default == "app.py"
+    assert [choice.value for choice in package_choices] == [
+        "requirements.txt",
+        "pyproject.toml",
+        init_mod._OTHER_PACKAGE_FILE,
+    ]
+    assert package_default == "requirements.txt"
+    assert init_mod._PYTHON_PACKAGE_MANAGERS[0] == "uv"
+
+
+def test_interactive_init_detects_content_specific_entrypoints(runner):
+    with runner.isolated_filesystem():
+        Path("app.py").write_text("", encoding="utf-8")
+        Path("report.ipynb").write_text("{}", encoding="utf-8")
+        Path("index.html").write_text("", encoding="utf-8")
+
+        notebook_choices, notebook_default = init_mod._entrypoint_choices(".", "jupyter-notebook")
+        html_choices, html_default = init_mod._entrypoint_choices(".", "html")
+
+    assert [choice.value for choice in notebook_choices[:-1]] == ["report.ipynb"]
+    assert notebook_default == "report.ipynb"
+    assert [choice.value for choice in html_choices[:-1]] == ["index.html"]
+    assert html_default == "index.html"
+
+
+def test_interactive_init_accepts_custom_entrypoint_and_package_file():
+    with patch.object(
+        init_mod,
+        "_ask",
+        side_effect=[
+            "python-fastapi",
+            init_mod._OTHER_ENTRYPOINT,
+            "src/api.py:create_app",
+            "Custom API",
+            init_mod._OTHER_PACKAGE_FILE,
+            "requirements/connect.txt",
+            "uv",
+            True,
+        ],
+    ):
+        answers = init_mod.collect_init_answers(".")
+
+    assert answers["entrypoint"] == "src/api.py:create_app"
+    assert answers["python"] == {
+        "package_file": "requirements/connect.txt",
+        "package_manager": "uv",
+    }
 
 
 def test_interactive_quarto_asks_mode_and_version(runner):
