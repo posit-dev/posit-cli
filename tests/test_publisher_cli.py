@@ -151,6 +151,7 @@ def test_interactive_init_collects_python_answers(runner):
                 "Sales API",
                 "requirements.txt",
                 "uv",
+                init_mod._INCLUDE_ALL_FILES,
             ],
         ):
             with patch.object(
@@ -167,7 +168,7 @@ def test_interactive_init_collects_python_answers(runner):
         "package_file": "requirements.txt",
         "package_manager": "uv",
     }
-    assert request.files == ()
+    assert request.files == ("*",)
     assert "Connect" in result.output
     assert "  / /\\" in result.output
     assert " | |  | Posit Connect" in result.output
@@ -217,6 +218,34 @@ def test_interactive_init_detects_content_specific_entrypoints(runner):
     assert html_default == "index.html"
 
 
+def test_manual_file_choices_precheck_entrypoint_and_dependencies(runner):
+    with runner.isolated_filesystem():
+        Path("src").mkdir()
+        Path("src/api.py").write_text("", encoding="utf-8")
+        Path("app.py").write_text("", encoding="utf-8")
+        Path("requirements.txt").write_text("", encoding="utf-8")
+        Path("README.md").write_text("", encoding="utf-8")
+
+        choices = init_mod._top_level_file_choices(
+            ".",
+            "app.py",
+            "requirements.txt",
+        )
+
+    assert [choice.value for choice in choices] == [
+        "/src/",
+        "/app.py",
+        "/README.md",
+        "/requirements.txt",
+    ]
+    assert {choice.value: choice.checked for choice in choices} == {
+        "/src/": False,
+        "/app.py": True,
+        "/README.md": False,
+        "/requirements.txt": True,
+    }
+
+
 def test_interactive_init_accepts_custom_entrypoint_and_package_file():
     with patch.object(
         init_mod,
@@ -229,6 +258,8 @@ def test_interactive_init_accepts_custom_entrypoint_and_package_file():
             init_mod._OTHER_PACKAGE_FILE,
             "requirements/connect.txt",
             "uv",
+            init_mod._SELECT_FILES_MANUALLY,
+            ["/src/", "/requirements/"],
         ],
     ):
         answers = init_mod.collect_init_answers(".")
@@ -238,6 +269,7 @@ def test_interactive_init_accepts_custom_entrypoint_and_package_file():
         "package_file": "requirements/connect.txt",
         "package_manager": "uv",
     }
+    assert answers["files"] == ("/src/", "/requirements/")
 
 
 def test_interactive_quarto_asks_mode_and_version(runner):
@@ -254,6 +286,7 @@ def test_interactive_quarto_asks_mode_and_version(runner):
                 "report.qmd",
                 "Report",
                 "1.6.0",
+                init_mod._INCLUDE_ALL_FILES,
             ],
         ):
             with patch.object(

@@ -18,7 +18,18 @@ _CONTENT_TYPE_NAMES = tuple(_CONTENT_TYPES_BY_NAME)
 _PYTHON_PACKAGE_MANAGERS = ("uv", "pip", "none")
 _OTHER_ENTRYPOINT = "__other_entrypoint__"
 _OTHER_PACKAGE_FILE = "__other_package_file__"
+_INCLUDE_ALL_FILES = "__include_all_files__"
+_SELECT_FILES_MANUALLY = "__select_files_manually__"
 _PYTHON_API_TYPES = {"python-fastapi", "python-flask", "python-dash"}
+_FILE_PICKER_EXCLUSIONS = {
+    ".git",
+    ".posit",
+    ".svn",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
 _ENTRYPOINT_PRIORITY = (
     "app.py",
     "main.py",
@@ -138,6 +149,65 @@ def _package_file_choices() -> Tuple[Tuple[Any, ...], str]:
     )
 
 
+def _top_level_name(project_dir: str, path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+
+    relative = path.split(":", 1)[0].replace("\\", "/").lstrip("/")
+    while relative.startswith("./"):
+        relative = relative[2:]
+    if not relative:
+        return None
+
+    try:
+        entries = {entry.name for entry in Path(project_dir).iterdir()}
+    except OSError:
+        return None
+    top_level = relative.split("/", 1)[0]
+    if top_level in entries:
+        return top_level
+    if "/" not in relative and "{}.py".format(relative) in entries:
+        return "{}.py".format(relative)
+    if "/" not in relative and not relative.endswith(".py"):
+        package = relative.split(".", 1)[0]
+        if package in entries:
+            return package
+    return None
+
+
+def _top_level_file_choices(
+    project_dir: str,
+    entrypoint: str,
+    package_file: Optional[str],
+) -> List[Any]:
+    checked_entries = {
+        name
+        for name in (
+            _top_level_name(project_dir, entrypoint),
+            _top_level_name(project_dir, package_file),
+        )
+        if name
+    }
+    try:
+        entries = [
+            entry
+            for entry in Path(project_dir).iterdir()
+            if entry.name not in _FILE_PICKER_EXCLUSIONS
+        ]
+    except OSError:
+        entries = []
+
+    entries.sort(key=lambda entry: (not entry.is_dir(), entry.name.lower()))
+    return [
+        questionary.Choice(
+            title=entry.name + ("/" if entry.is_dir() else ""),
+            value="/{}/".format(entry.name) if entry.is_dir() else "/{}".format(entry.name),
+            checked=entry.name in checked_entries,
+        )
+        for entry in entries
+    ]
+
+
 def _default_title(project_dir: str, entrypoint: str) -> str:
     project_name = os.path.basename(os.path.abspath(project_dir))
     return project_name or Path(entrypoint.split(":", 1)[0]).stem
@@ -169,6 +239,17 @@ def _text(message: str, **kwargs: Any) -> Any:
     return questionary.text(
         message,
         qmark=">",
+        style=_QUESTIONARY_STYLE,
+        color_depth=ColorDepth.DEPTH_8_BIT,
+        **kwargs,
+    )
+
+
+def _checkbox(message: str, **kwargs: Any) -> Any:
+    return questionary.checkbox(
+        message,
+        qmark=">",
+        pointer=">",
         style=_QUESTIONARY_STYLE,
         color_depth=ColorDepth.DEPTH_8_BIT,
         **kwargs,
@@ -276,6 +357,7 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
     )
 
     python: Optional[Dict[str, str]] = None
+    package_file: Optional[str] = None
     if spec.language == "python":
         package_file_choices, package_file_default = _package_file_choices()
         _note("Choose requirements.txt, pyproject.toml, or another dependency file.")
@@ -323,12 +405,49 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
             )
         }
 
+    _note("'*' includes current and future project files.")
+    _note("Publisher still skips metadata, environments, caches, and node_modules.")
+    file_mode = _ask(
+        _select(
+            "Which project files should Connect include when publishing?",
+            choices=(
+                questionary.Choice(
+                    "All project files (*)",
+                    value=_INCLUDE_ALL_FILES,
+                ),
+                questionary.Choice(
+                    "Choose top-level files and folders",
+                    value=_SELECT_FILES_MANUALLY,
+                ),
+            ),
+            default=_INCLUDE_ALL_FILES,
+        )
+    )
+    if file_mode == _INCLUDE_ALL_FILES:
+        files = ("*",)
+    else:
+        file_choices = _top_level_file_choices(project_dir, entrypoint, package_file)
+        if not file_choices:
+            raise click.ClickException(
+                "No top-level files or folders are available for manual selection."
+            )
+        _note("Folders include everything beneath them. Press Space to toggle a checkbox.")
+        selected_files = _ask(
+            _checkbox(
+                "Select the top-level files and folders to include",
+                choices=file_choices,
+                validate=lambda selected: bool(selected) or "Select at least one file or folder.",
+            )
+        )
+        files = tuple(selected_files)
+
     return {
         "content_type": content_type,
         "entrypoint": entrypoint,
         "title": title,
         "python": python,
         "quarto": quarto,
+        "files": files,
     }
 
 
