@@ -267,7 +267,7 @@ def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
     assert result.exit_code != 0
     # Checked against combined output, not result.stdout/.stderr separately:
     # Click's CliRunner only captures those on separate streams in >=8.2
-    # (older click, still resolved for our py3.8/3.9 floor, always mixes them).
+    # (older Click, still resolved at our Python 3.9 floor, always mixes them).
     assert "HTTP/" not in result.output  # no header lines leaked
     assert "neal" not in result.output  # no body leaked
     assert "jq: boom" in result.output

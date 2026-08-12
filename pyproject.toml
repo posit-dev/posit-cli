@@ -4,7 +4,7 @@ name = "posit-cli"
 dynamic = ["version"]
 description = "A single, friendly command-line interface for Posit Connect, in the spirit of gh."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Posit Software, PBC" }]
@@ -19,6 +19,7 @@ dependencies = [
     # tokens land in the OS keyring.
     "keyring>=23.0",
     "click>=8.0",
+    "questionary>=2.1.1,<3",
     # jq bindings power `posit connect api --jq`, mirroring `gh api --jq`.
     "jq>=1.4",
 ]

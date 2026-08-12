@@ -3,7 +3,7 @@
 import importlib
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -23,10 +23,12 @@ def runner():
 
 def test_init_without_flags_requires_tty(runner):
     with patch.object(init_mod, "_is_interactive", return_value=False):
-        result = runner.invoke(cli, ["connect", "init"])
+        with patch.object(init_mod.questionary, "select") as select:
+            result = runner.invoke(cli, ["connect", "init"])
 
     assert result.exit_code == 2
     assert "Interactive input is unavailable" in result.output
+    assert not select.called
 
 
 def test_init_explicit_flags_build_request(runner):
@@ -139,22 +141,23 @@ def test_interactive_init_collects_python_answers(runner):
     initialized = SimpleNamespace(
         config_name="sales", config_path="/project/.posit/publish/sales.toml"
     )
-    user_input = (
-        "\n".join(
-            [
+    with patch.object(init_mod, "_is_interactive", return_value=True):
+        with patch.object(
+            init_mod,
+            "_ask",
+            side_effect=[
                 "python-fastapi",
-                "",
+                "app.py:app",
                 "Sales API",
                 "pyproject.toml",
                 "uv",
-                "",
-            ]
-        )
-        + "\n"
-    )
-    with patch.object(init_mod, "_is_interactive", return_value=True):
-        with patch.object(init_mod, "initialize_project", return_value=initialized) as initialize:
-            result = runner.invoke(cli, ["connect", "init"], input=user_input)
+                True,
+            ],
+        ):
+            with patch.object(
+                init_mod, "initialize_project", return_value=initialized
+            ) as initialize:
+                result = runner.invoke(cli, ["connect", "init"])
 
     assert result.exit_code == 0, result.output
     request = initialize.call_args.args[0]
@@ -172,27 +175,39 @@ def test_interactive_quarto_asks_mode_and_version(runner):
     initialized = SimpleNamespace(
         config_name="report", config_path="/project/.posit/publish/report.toml"
     )
-    user_input = (
-        "\n".join(
-            [
+    with patch.object(init_mod, "_is_interactive", return_value=True):
+        with patch.object(
+            init_mod,
+            "_ask",
+            side_effect=[
                 "quarto-static",
                 "shiny",
-                "",
+                "report.qmd",
                 "Report",
                 "1.6.0",
-                "",
-            ]
-        )
-        + "\n"
-    )
-    with patch.object(init_mod, "_is_interactive", return_value=True):
-        with patch.object(init_mod, "initialize_project", return_value=initialized) as initialize:
-            result = runner.invoke(cli, ["connect", "init"], input=user_input)
+                True,
+            ],
+        ):
+            with patch.object(
+                init_mod, "initialize_project", return_value=initialized
+            ) as initialize:
+                result = runner.invoke(cli, ["connect", "init"])
 
     assert result.exit_code == 0, result.output
     request = initialize.call_args.args[0]
     assert request.content_type == "quarto-shiny"
     assert request.quarto == {"version": "1.6.0"}
+
+
+def test_interactive_init_aborts_cleanly(runner):
+    prompt = MagicMock()
+    prompt.unsafe_ask.side_effect = KeyboardInterrupt
+    with patch.object(init_mod, "_is_interactive", return_value=True):
+        with patch.object(init_mod.questionary, "select", return_value=prompt):
+            result = runner.invoke(cli, ["connect", "init"])
+
+    assert result.exit_code == 1
+    assert "Aborted!" in result.output
 
 
 def test_init_wraps_rsconnect_errors(runner):

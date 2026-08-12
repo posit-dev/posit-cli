@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import click
+import questionary
 from rsconnect.exception import RSConnectException
 from rsconnect.publisher import CONTENT_TYPES, InitRequest, initialize_project
 
@@ -31,38 +32,69 @@ def _default_title(project_dir: str, entrypoint: str) -> str:
     return project_name or Path(entrypoint.split(":", 1)[0]).stem
 
 
+def _ask(prompt: Any) -> Any:
+    try:
+        return prompt.unsafe_ask()
+    except (EOFError, KeyboardInterrupt) as exc:
+        raise click.Abort() from exc
+
+
+def _required(value: str) -> bool:
+    return bool(value.strip())
+
+
 def collect_init_answers(project_dir: str) -> Dict[str, Any]:
     """Prompt for initialization values without performing initialization."""
-    click.echo("Content types:")
-    for spec in CONTENT_TYPES:
-        click.echo("  {:<18} {}".format(spec.type, spec.label))
-
-    content_type = click.prompt(
-        "Content type",
-        type=click.Choice(_CONTENT_TYPE_NAMES, case_sensitive=False),
+    content_type = _ask(
+        questionary.select(
+            "Content type",
+            choices=[
+                questionary.Choice(title=spec.label, value=spec.type) for spec in CONTENT_TYPES
+            ],
+        )
     )
     if content_type.startswith("quarto-"):
-        mode = click.prompt(
-            "Quarto mode",
-            type=click.Choice(("static", "shiny"), case_sensitive=False),
-            default=content_type[len("quarto-") :],
-            show_choices=True,
+        mode = _ask(
+            questionary.select(
+                "Quarto mode",
+                choices=("static", "shiny"),
+                default=content_type[len("quarto-") :],
+            )
         )
         content_type = "quarto-" + mode
 
     spec = _CONTENT_TYPES_BY_NAME[content_type]
-    entrypoint = click.prompt("Entrypoint", default=spec.entrypoint_example)
-    title = click.prompt("Title", default=_default_title(project_dir, entrypoint))
+    entrypoint = _ask(
+        questionary.text(
+            "Entrypoint",
+            default=spec.entrypoint_example,
+            validate=_required,
+        )
+    )
+    title = _ask(
+        questionary.text(
+            "Title",
+            default=_default_title(project_dir, entrypoint),
+            validate=_required,
+        )
+    )
 
     python: Optional[Dict[str, str]] = None
     if spec.language == "python":
         package_file, package_manager = _default_package_settings(project_dir)
-        package_file = click.prompt("Python package file", default=package_file)
-        package_manager = click.prompt(
-            "Python package manager",
-            type=click.Choice(_PYTHON_PACKAGE_MANAGERS, case_sensitive=False),
-            default=package_manager,
-            show_choices=True,
+        package_file = _ask(
+            questionary.text(
+                "Python package file",
+                default=package_file,
+                validate=_required,
+            )
+        )
+        package_manager = _ask(
+            questionary.select(
+                "Python package manager",
+                choices=_PYTHON_PACKAGE_MANAGERS,
+                default=package_manager,
+            )
         )
         python = {
             "package_file": package_file,
@@ -71,11 +103,21 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
 
     quarto: Optional[Dict[str, str]] = None
     if content_type.startswith("quarto-"):
-        quarto = {"version": click.prompt("Quarto version")}
+        quarto = {
+            "version": _ask(
+                questionary.text(
+                    "Quarto version",
+                    validate=_required,
+                )
+            )
+        }
 
     files = ("*",)
-    if not click.confirm(
-        "Use detected file patterns ({})?".format(", ".join(files)), default=True
+    if not _ask(
+        questionary.confirm(
+            "Use detected file patterns ({})?".format(", ".join(files)),
+            default=True,
+        )
     ):
         raise click.Abort()
 

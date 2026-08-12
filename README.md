@@ -13,6 +13,8 @@ This project is in early-stage development and so far only supports Posit Connec
 
 ## Installation
 
+`posit-cli` requires Python 3.9 or newer.
+
 Install [`posit-cli` from PyPI](https://pypi.org/project/posit-cli/) with
 [`uv`](https://docs.astral.sh/uv/):
 
@@ -128,8 +130,9 @@ $ posit connect api v1/content -f name=my-app              # POST body (creates 
 
 ## `posit connect init` and `publish`
 
-Run `posit connect init` in a terminal for an interactive setup wizard, or pass
-the required content type and entrypoint explicitly:
+Run `posit connect init` in a terminal for a Questionary-powered setup wizard
+with navigable choices, or pass the required content type and entrypoint
+explicitly:
 
 ```console
 $ posit connect init
