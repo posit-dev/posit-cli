@@ -151,7 +151,6 @@ def test_interactive_init_collects_python_answers(runner):
                 "Sales API",
                 "requirements.txt",
                 "uv",
-                True,
             ],
         ):
             with patch.object(
@@ -168,7 +167,7 @@ def test_interactive_init_collects_python_answers(runner):
         "package_file": "requirements.txt",
         "package_manager": "uv",
     }
-    assert request.files == ("*",)
+    assert request.files == ()
     assert "Connect" in result.output
     assert "  / /\\" in result.output
     assert " | |  | Connect" in result.output
@@ -191,7 +190,6 @@ def test_interactive_init_detects_entrypoints_and_defaults(runner):
     assert [choice.value for choice in choices] == [
         "app.py",
         "main.py",
-        "worker.py",
         init_mod._OTHER_ENTRYPOINT,
     ]
     assert default == "app.py"
@@ -231,7 +229,6 @@ def test_interactive_init_accepts_custom_entrypoint_and_package_file():
             init_mod._OTHER_PACKAGE_FILE,
             "requirements/connect.txt",
             "uv",
-            True,
         ],
     ):
         answers = init_mod.collect_init_answers(".")
@@ -257,7 +254,6 @@ def test_interactive_quarto_asks_mode_and_version(runner):
                 "report.qmd",
                 "Report",
                 "1.6.0",
-                True,
             ],
         ):
             with patch.object(

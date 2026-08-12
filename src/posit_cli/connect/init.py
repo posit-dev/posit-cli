@@ -79,6 +79,19 @@ def _entrypoint_suffixes(content_type: str) -> Tuple[str, ...]:
 
 
 def _entrypoint_choices(project_dir: str, content_type: str) -> Tuple[List[Any], str]:
+    if content_type.startswith("python-"):
+        return (
+            [
+                questionary.Choice("app.py", value="app.py"),
+                questionary.Choice("main.py", value="main.py"),
+                questionary.Choice(
+                    "Other - Enter a different file or module",
+                    value=_OTHER_ENTRYPOINT,
+                ),
+            ],
+            "app.py",
+        )
+
     suffixes = _entrypoint_suffixes(content_type)
     priority = {name: index for index, name in enumerate(_ENTRYPOINT_PRIORITY)}
 
@@ -154,16 +167,6 @@ def _select(message: str, **kwargs: Any) -> Any:
 
 def _text(message: str, **kwargs: Any) -> Any:
     return questionary.text(
-        message,
-        qmark=">",
-        style=_QUESTIONARY_STYLE,
-        color_depth=ColorDepth.DEPTH_8_BIT,
-        **kwargs,
-    )
-
-
-def _confirm(message: str, **kwargs: Any) -> Any:
-    return questionary.confirm(
         message,
         qmark=">",
         style=_QUESTIONARY_STYLE,
@@ -320,23 +323,12 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
             )
         }
 
-    files = ("*",)
-    _note("The initial '*' pattern includes the project tree and can be refined later.")
-    if not _ask(
-        _confirm(
-            "Use '{}' as the initial project file pattern?".format(", ".join(files)),
-            default=True,
-        )
-    ):
-        raise click.Abort()
-
     return {
         "content_type": content_type,
         "entrypoint": entrypoint,
         "title": title,
         "python": python,
         "quarto": quarto,
-        "files": files,
     }
 
 
