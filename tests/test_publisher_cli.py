@@ -171,7 +171,7 @@ def test_interactive_init_collects_python_answers(runner):
     assert request.files == ("*",)
     assert "Connect" in result.output
     assert "  / /\\" in result.output
-    assert "< <  >    Connect" in result.output
+    assert " | |  | Connect" in result.output
     assert "  \\ \\/" in result.output
     assert "Configure a project for Posit Connect" in result.output
     assert "[OK] Publisher project initialized" in result.output

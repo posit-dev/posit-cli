@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import click
 import questionary
+from prompt_toolkit.output import ColorDepth
 from rsconnect.exception import RSConnectException
 from rsconnect.publisher import CONTENT_TYPES, InitRequest, initialize_project
 
@@ -40,14 +41,14 @@ _ENTRYPOINT_PRIORITY = (
 )
 _QUESTIONARY_STYLE = questionary.Style(
     [
-        ("qmark", "fg:#44739b bold"),
-        ("question", "bold"),
-        ("answer", "fg:#44739b bold"),
-        ("pointer", "fg:#44739b bold"),
-        ("highlighted", "fg:#44739b bold"),
-        ("selected", "fg:#44739b"),
-        ("instruction", "fg:#7c8793"),
-        ("disabled", "fg:#858585 italic"),
+        ("qmark", "ansibrightblue bold"),
+        ("question", "ansiblue bold"),
+        ("answer", "ansiblue bold"),
+        ("pointer", "ansibrightblue bold"),
+        ("highlighted", "ansiblue bold"),
+        ("selected", "ansiblue"),
+        ("instruction", "ansibrightblack"),
+        ("disabled", "ansibrightblack italic"),
     ]
 )
 
@@ -146,6 +147,7 @@ def _select(message: str, **kwargs: Any) -> Any:
         qmark=">",
         pointer=">",
         style=_QUESTIONARY_STYLE,
+        color_depth=ColorDepth.DEPTH_8_BIT,
         **kwargs,
     )
 
@@ -155,6 +157,7 @@ def _text(message: str, **kwargs: Any) -> Any:
         message,
         qmark=">",
         style=_QUESTIONARY_STYLE,
+        color_depth=ColorDepth.DEPTH_8_BIT,
         **kwargs,
     )
 
@@ -164,6 +167,7 @@ def _confirm(message: str, **kwargs: Any) -> Any:
         message,
         qmark=">",
         style=_QUESTIONARY_STYLE,
+        color_depth=ColorDepth.DEPTH_8_BIT,
         **kwargs,
     )
 
@@ -174,9 +178,9 @@ def _show_banner(project_dir: str) -> None:
         click.style("  / ", fg="bright_blue", bold=True) + click.style("/\\", fg="blue", bold=True)
     )
     click.echo(
-        click.style("< ", fg="bright_blue", bold=True)
-        + click.style("<  >", fg="blue", bold=True)
-        + "    "
+        click.style(" | ", fg="bright_blue", bold=True)
+        + click.style("|  |", fg="blue", bold=True)
+        + " "
         + click.style("Connect", bold=True)
     )
     click.echo(
