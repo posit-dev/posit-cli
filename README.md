@@ -5,7 +5,8 @@ A friendly command-line interface for Posit products, in the spirit of [`gh`](ht
 ```console
 $ posit connect login https://connect.example.com             # OAuth, tokens in your OS keyring
 $ posit connect api v1/user -q .username                      # gh-api-style raw request
-$ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
+$ posit connect init --type python-fastapi --entrypoint app.py:app
+$ posit connect publish . --server https://connect.example.com
 ```
 
 This project is in early-stage development and so far only supports Posit Connect's APIs.
@@ -53,13 +54,24 @@ $ posit connect login https://connect.example.com
 $ posit connect api v1/user -q .username
 ```
 
-**3. Deploy something.** Anything `rsconnect` can deploy, `posit` can too:
+**3. Initialize and publish.** Create a Publisher-compatible
+`.posit/publish` configuration, then publish it:
 
 ```console
-$ posit connect deploy streamlit ./my-app
+$ cd my-app
+$ posit connect init
+$ posit connect publish . --server https://connect.example.com
 ```
 
-That's it — from here, explore `posit connect --help` for the full command set.
+The server is needed only for the first publish. Later publishes reuse the
+saved deployment record:
+
+```console
+$ posit connect publish .
+```
+
+Anything `rsconnect` can deploy remains available under `posit connect deploy`.
+Explore `posit connect --help` for the full command set.
 
 ## Authentication
 
@@ -113,6 +125,32 @@ $ posit connect api "v1/users?page_size=5"   # query params in the path
 $ posit connect api v1/users -X GET -f page_size=5          # or force GET
 $ posit connect api v1/content -f name=my-app              # POST body (creates content)
 ```
+
+## `posit connect init` and `publish`
+
+Run `posit connect init` in a terminal for an interactive setup wizard, or pass
+the required content type and entrypoint explicitly:
+
+```console
+$ posit connect init
+$ posit connect init --type python-fastapi --entrypoint app.py:app --title "Sales API"
+```
+
+The command does not prompt when stdin is non-interactive. Automation must pass
+`--type` and `--entrypoint`; Quarto content also requires `--quarto-version`.
+
+Publish the initialized project to a URL or saved server name:
+
+```console
+$ posit connect publish . --server https://connect.example.com
+$ posit connect publish . --name production
+$ posit connect publish . --config sales-api
+$ posit connect publish . --deployment production
+```
+
+`--config` selects an exact `.posit/publish` configuration and `--deployment`
+selects an exact deployment record. Successful publishes print the content URL
+to stdout.
 
 ## `posit connect *`
 

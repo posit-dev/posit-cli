@@ -12,7 +12,9 @@ dependencies = [
     # posit-cli reuses rsconnect-python's *internal* API (RSConnectExecutor,
     # RSConnectClient). These have no stability contract, so re-verify the internals
     # on bumps. See tests/test_rsconnect_contract.py.
-    "rsconnect-python>=1.30,<2",
+    # Publisher APIs used by `connect init` and `connect publish`. Pin the exact
+    # PR 830 commit until the API is available in an rsconnect-python release.
+    "rsconnect-python @ git+https://github.com/posit-dev/rsconnect-python.git@c92d8f4ac033a5b1bb4f67bbaae33bf8e0b143e5",
     # rsconnect imports `keyring` optionally; we depend on it directly so OAuth
     # tokens land in the OS keyring.
     "keyring>=23.0",
@@ -34,6 +36,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 # Write the resolved version into the package. An sdist has no git metadata, so a
 # wheel built from an sdist reads this file instead of asking git.

@@ -38,3 +38,32 @@ def test_http_response_surface():
 
     params = inspect.signature(HTTPResponse.__init__).parameters
     assert {"full_uri", "response", "body", "exception"} <= set(params)
+
+
+def test_publisher_service_surface():
+    from rsconnect.publisher import (
+        CONTENT_TYPES,
+        InitRequest,
+        PublishRequest,
+        initialize_project,
+        publish_project,
+    )
+
+    assert CONTENT_TYPES
+    assert {"project_dir", "content_type", "entrypoint"} <= set(
+        inspect.signature(InitRequest).parameters
+    )
+    assert {
+        "project_dir",
+        "config_name",
+        "deployment_name",
+        "server",
+        "server_name",
+        "api_key",
+        "insecure",
+        "cacert",
+        "verify",
+        "metadata",
+    } <= set(inspect.signature(PublishRequest).parameters)
+    assert callable(initialize_project)
+    assert callable(publish_project)
