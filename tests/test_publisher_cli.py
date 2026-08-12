@@ -70,7 +70,7 @@ def test_init_explicit_flags_build_request(runner):
         "package_file": "pyproject.toml",
         "package_manager": "uv",
     }
-    assert request.files == ("app.py", "src/**")
+    assert request.files == ("app.py", "src/**", "/pyproject.toml")
     assert "Initialized sales" in result.output
 
 
@@ -111,6 +111,9 @@ def test_init_writes_publisher_config(runner):
             "package_file": "pyproject.toml",
             "package_manager": "uv",
         }
+        assert "*" in initialized.files
+        assert "/app.py" in initialized.files
+        assert "/pyproject.toml" in initialized.files
 
 
 def test_init_explicit_mode_requires_type_and_entrypoint(runner):
@@ -168,7 +171,7 @@ def test_interactive_init_collects_python_answers(runner):
         "package_file": "requirements.txt",
         "package_manager": "uv",
     }
-    assert request.files == ("*",)
+    assert request.files == ("*", "/app.py", "/requirements.txt")
     assert "Connect" in result.output
     assert "  / /\\" in result.output
     assert " | |  | Posit Connect" in result.output
@@ -246,6 +249,21 @@ def test_manual_file_choices_precheck_entrypoint_and_dependencies(runner):
     }
 
 
+def test_required_files_are_added_after_manual_selection():
+    files = init_mod._include_required_files(
+        ".",
+        "src/api.py:create_app",
+        "requirements/connect.txt",
+        ("/README.md",),
+    )
+
+    assert files == (
+        "/README.md",
+        "/src/api.py",
+        "/requirements/connect.txt",
+    )
+
+
 def test_interactive_init_accepts_custom_entrypoint_and_package_file():
     with patch.object(
         init_mod,
@@ -298,6 +316,7 @@ def test_interactive_quarto_asks_mode_and_version(runner):
     request = initialize.call_args.args[0]
     assert request.content_type == "quarto-shiny"
     assert request.quarto == {"version": "1.6.0"}
+    assert request.files == ("*", "/report.qmd")
 
 
 def test_interactive_init_aborts_cleanly(runner):

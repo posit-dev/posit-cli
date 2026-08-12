@@ -208,6 +208,46 @@ def _top_level_file_choices(
     ]
 
 
+def _root_anchored(path: str) -> str:
+    return "/" + path.replace("\\", "/").lstrip("/")
+
+
+def _entrypoint_file(project_dir: str, entrypoint: str) -> str:
+    value = entrypoint.split(":", 1)[0].replace("\\", "/").lstrip("/")
+    candidates = [value]
+    if not Path(value).suffix:
+        candidates.extend(
+            (
+                "{}.py".format(value),
+                "{}.py".format(value.replace(".", "/")),
+                "{}/__init__.py".format(value.replace(".", "/")),
+            )
+        )
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(project_dir, candidate)):
+            return candidate
+    return value
+
+
+def _include_required_files(
+    project_dir: str,
+    entrypoint: str,
+    package_file: Optional[str],
+    files: Tuple[str, ...],
+) -> Tuple[str, ...]:
+    selected = list(files or ("*",))
+    required = [_root_anchored(_entrypoint_file(project_dir, entrypoint))]
+    if package_file:
+        required.append(_root_anchored(package_file))
+
+    normalized = {pattern.lstrip("/") for pattern in selected}
+    for pattern in required:
+        if pattern.lstrip("/") not in normalized:
+            selected.append(pattern)
+            normalized.add(pattern.lstrip("/"))
+    return tuple(selected)
+
+
 def _default_title(project_dir: str, entrypoint: str) -> str:
     project_name = os.path.basename(os.path.abspath(project_dir))
     return project_name or Path(entrypoint.split(":", 1)[0]).stem
@@ -431,6 +471,7 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
             raise click.ClickException(
                 "No top-level files or folders are available for manual selection."
             )
+        _note("The entrypoint and dependency file are always included.")
         _note("Folders include everything beneath them. Press Space to toggle a checkbox.")
         selected_files = _ask(
             _checkbox(
@@ -567,6 +608,13 @@ def init(
     elif quarto_version:
         raise click.UsageError("--quarto-version requires Quarto content.")
 
+    resolved_files = _include_required_files(
+        project_dir,
+        resolved_entrypoint,
+        python.get("package_file") if python else None,
+        answers.get("files", files),
+    )
+
     try:
         result = initialize_project(
             InitRequest(
@@ -575,7 +623,7 @@ def init(
                 entrypoint=resolved_entrypoint,
                 config_name=config_name,
                 title=answers.get("title", title),
-                files=answers.get("files", files),
+                files=resolved_files,
                 python=python,
                 quarto=quarto,
                 overwrite=overwrite,
