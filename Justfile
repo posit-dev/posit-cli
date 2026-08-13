@@ -4,6 +4,18 @@
 test py="3.13":
     uv run --python {{py}} --extra test pytest tests
 
+# Run tests that publish to a live Connect instance.
+integration:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f .connect-license.lic ]]; then
+        echo "Missing .connect-license.lic; see AGENTS.md." >&2
+        exit 1
+    fi
+    uvx --from git+https://github.com/posit-dev/with-connect.git \
+        with-connect --license .connect-license.lic -- \
+        uv run --extra test pytest -m integration -vv tests/integration
+
 # Check formatting and lint
 lint:
     uv run --extra lint ruff format --check

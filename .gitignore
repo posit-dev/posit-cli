@@ -17,5 +17,9 @@ venv/
 .ruff_cache/
 .mypy_cache/
 .coverage
+
+# Local Posit Connect integration-test license
+/.connect-license.lic
+
 # roborev snapshots
 /.roborev/
