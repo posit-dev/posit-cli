@@ -157,7 +157,7 @@ def test_interactive_publish_init_collects_python_answers(runner):
                 "Sales API",
                 "requirements.txt",
                 "uv",
-                init_mod._INCLUDE_ALL_FILES,
+                ["/app.py", "/requirements.txt"],
             ],
         ):
             with patch.object(
@@ -174,7 +174,7 @@ def test_interactive_publish_init_collects_python_answers(runner):
         "package_file": "requirements.txt",
         "package_manager": "uv",
     }
-    assert request.files == ("*", "/app.py", "/requirements.txt")
+    assert request.files == ("/app.py", "/requirements.txt")
     assert "Connect" in result.output
     assert "  / /\\" in result.output
     assert " | |  | Posit Connect" in result.output
@@ -279,6 +279,27 @@ def test_manual_file_choices_precheck_entrypoint_and_dependencies(runner):
     }
 
 
+def test_file_choices_use_answered_nested_paths_for_checked_folders(runner):
+    with runner.isolated_filesystem():
+        Path("src").mkdir()
+        Path("src/api.py").write_text("", encoding="utf-8")
+        Path("requirements").mkdir()
+        Path("requirements/connect.txt").write_text("", encoding="utf-8")
+        Path("README.md").write_text("", encoding="utf-8")
+
+        choices = init_mod._top_level_file_choices(
+            ".",
+            "src/api.py:create_app",
+            "requirements/connect.txt",
+        )
+
+    assert {choice.value: choice.checked for choice in choices} == {
+        "/requirements/": True,
+        "/src/": True,
+        "/README.md": False,
+    }
+
+
 def test_required_files_are_added_after_manual_selection():
     files = init_mod._include_required_files(
         ".",
@@ -306,7 +327,6 @@ def test_interactive_publish_init_accepts_custom_entrypoint_and_package_file():
             init_mod._OTHER_PACKAGE_FILE,
             "requirements/connect.txt",
             "uv",
-            init_mod._SELECT_FILES_MANUALLY,
             ["/src/", "/requirements/"],
         ],
     ):
@@ -334,7 +354,7 @@ def test_interactive_publish_init_quarto_asks_mode_and_version(runner):
                 "report.qmd",
                 "Report",
                 "1.6.0",
-                init_mod._INCLUDE_ALL_FILES,
+                ["/report.qmd"],
             ],
         ):
             with patch.object(
@@ -346,7 +366,7 @@ def test_interactive_publish_init_quarto_asks_mode_and_version(runner):
     request = initialize.call_args.args[0]
     assert request.content_type == "quarto-shiny"
     assert request.quarto == {"version": "1.6.0"}
-    assert request.files == ("*", "/report.qmd")
+    assert request.files == ("/report.qmd",)
 
 
 def test_interactive_publish_init_aborts_cleanly(runner):

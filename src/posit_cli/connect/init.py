@@ -16,8 +16,6 @@ from rsconnect.publisher import CONTENT_TYPES, InitRequest, initialize_project
 _CONTENT_TYPES_BY_NAME = {spec.type: spec for spec in CONTENT_TYPES}
 _OTHER_ENTRYPOINT = "__other_entrypoint__"
 _OTHER_PACKAGE_FILE = "__other_package_file__"
-_INCLUDE_ALL_FILES = "__include_all_files__"
-_SELECT_FILES_MANUALLY = "__select_files_manually__"
 _PYTHON_API_TYPES = {"python-fastapi", "python-flask", "python-dash"}
 _FILE_PICKER_EXCLUSIONS = {
     ".git",
@@ -462,42 +460,19 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
             )
         }
 
-    _note("'*' includes current and future project files.")
-    _note("Publisher still skips metadata, environments, caches, and node_modules.")
-    file_mode = _ask(
-        _select(
-            "Which project files should Connect include when publishing?",
-            choices=(
-                questionary.Choice(
-                    "All project files (*)",
-                    value=_INCLUDE_ALL_FILES,
-                ),
-                questionary.Choice(
-                    "Choose top-level files and folders",
-                    value=_SELECT_FILES_MANUALLY,
-                ),
-            ),
-            default=_INCLUDE_ALL_FILES,
+    file_choices = _top_level_file_choices(project_dir, entrypoint, package_file)
+    if not file_choices:
+        raise click.ClickException("No top-level files or folders are available for selection.")
+    _note("The chosen entrypoint and dependency file start selected.")
+    _note("Folders include everything beneath them. Press A to toggle all entries.")
+    selected_files = _ask(
+        _checkbox(
+            "Select the top-level files and folders to include",
+            choices=file_choices,
+            validate=lambda selected: bool(selected) or "Select at least one file or folder.",
         )
     )
-    if file_mode == _INCLUDE_ALL_FILES:
-        files = ("*",)
-    else:
-        file_choices = _top_level_file_choices(project_dir, entrypoint, package_file)
-        if not file_choices:
-            raise click.ClickException(
-                "No top-level files or folders are available for manual selection."
-            )
-        _note("The entrypoint and dependency file are always included.")
-        _note("Folders include everything beneath them. Press Space to toggle a checkbox.")
-        selected_files = _ask(
-            _checkbox(
-                "Select the top-level files and folders to include",
-                choices=file_choices,
-                validate=lambda selected: bool(selected) or "Select at least one file or folder.",
-            )
-        )
-        files = tuple(selected_files)
+    files = tuple(selected_files)
 
     return {
         "content_type": content_type,
