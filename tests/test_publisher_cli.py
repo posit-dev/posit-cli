@@ -251,15 +251,17 @@ def test_interactive_publish_init_detects_content_specific_entrypoints(runner):
     assert html_default == "index.html"
 
 
-def test_manual_file_choices_precheck_entrypoint_and_dependencies(runner):
+def test_file_tree_choices_precheck_entrypoint_and_dependencies(runner):
     with runner.isolated_filesystem():
         Path("src").mkdir()
         Path("src/api.py").write_text("", encoding="utf-8")
+        Path("src/models").mkdir()
+        Path("src/models/user.py").write_text("", encoding="utf-8")
         Path("app.py").write_text("", encoding="utf-8")
         Path("requirements.txt").write_text("", encoding="utf-8")
         Path("README.md").write_text("", encoding="utf-8")
 
-        choices = init_mod._top_level_file_choices(
+        choices = init_mod._file_tree_choices(
             ".",
             "app.py",
             "requirements.txt",
@@ -267,19 +269,30 @@ def test_manual_file_choices_precheck_entrypoint_and_dependencies(runner):
 
     assert [choice.value for choice in choices] == [
         "/src/",
+        "/src/models/",
+        "/src/models/user.py",
+        "/src/api.py",
         "/app.py",
         "/README.md",
         "/requirements.txt",
     ]
     assert {choice.value: choice.checked for choice in choices} == {
         "/src/": False,
+        "/src/models/": False,
+        "/src/models/user.py": False,
+        "/src/api.py": False,
         "/app.py": True,
         "/README.md": False,
         "/requirements.txt": True,
     }
+    assert {choice.value: choice.title for choice in choices}["/src/"] == "- src/ (all files)"
+    assert {choice.value: choice.title for choice in choices}["/src/api.py"] == "  - api.py"
+    assert {choice.value: choice.title for choice in choices}["/src/models/user.py"] == (
+        "    - user.py"
+    )
 
 
-def test_file_choices_use_answered_nested_paths_for_checked_folders(runner):
+def test_file_tree_choices_use_answered_exact_nested_paths(runner):
     with runner.isolated_filesystem():
         Path("src").mkdir()
         Path("src/api.py").write_text("", encoding="utf-8")
@@ -287,17 +300,33 @@ def test_file_choices_use_answered_nested_paths_for_checked_folders(runner):
         Path("requirements/connect.txt").write_text("", encoding="utf-8")
         Path("README.md").write_text("", encoding="utf-8")
 
-        choices = init_mod._top_level_file_choices(
+        choices = init_mod._file_tree_choices(
             ".",
             "src/api.py:create_app",
             "requirements/connect.txt",
         )
 
     assert {choice.value: choice.checked for choice in choices} == {
-        "/requirements/": True,
-        "/src/": True,
+        "/requirements/": False,
+        "/requirements/connect.txt": True,
+        "/src/": False,
+        "/src/api.py": True,
         "/README.md": False,
     }
+
+
+def test_selected_folder_supersedes_descendants():
+    files = init_mod._collapse_file_selections(
+        (
+            "/src/",
+            "/src/api.py",
+            "/src/models/",
+            "/src/models/user.py",
+            "/README.md",
+        )
+    )
+
+    assert files == ("/src/", "/README.md")
 
 
 def test_required_files_are_added_after_manual_selection():

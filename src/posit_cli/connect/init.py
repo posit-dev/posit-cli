@@ -164,63 +164,62 @@ def _package_file_choices(project_dir: str) -> Tuple[Tuple[Any, ...], str]:
     )
 
 
-def _top_level_name(project_dir: str, path: Optional[str]) -> Optional[str]:
-    if not path:
-        return None
-
-    relative = path.split(":", 1)[0].replace("\\", "/").lstrip("/")
-    while relative.startswith("./"):
-        relative = relative[2:]
-    if not relative:
-        return None
-
-    try:
-        entries = {entry.name for entry in Path(project_dir).iterdir()}
-    except OSError:
-        return None
-    top_level = relative.split("/", 1)[0]
-    if top_level in entries:
-        return top_level
-    if "/" not in relative and "{}.py".format(relative) in entries:
-        return "{}.py".format(relative)
-    if "/" not in relative and not relative.endswith(".py"):
-        package = relative.split(".", 1)[0]
-        if package in entries:
-            return package
-    return None
-
-
-def _top_level_file_choices(
+def _file_tree_choices(
     project_dir: str,
     entrypoint: str,
     package_file: Optional[str],
 ) -> List[Any]:
-    checked_entries = {
-        name
-        for name in (
-            _top_level_name(project_dir, entrypoint),
-            _top_level_name(project_dir, package_file),
-        )
-        if name
-    }
-    try:
-        entries = [
-            entry
-            for entry in Path(project_dir).iterdir()
-            if entry.name not in _FILE_PICKER_EXCLUSIONS
-        ]
-    except OSError:
-        entries = []
+    checked_paths = {_root_anchored(_entrypoint_file(project_dir, entrypoint)).rstrip("/")}
+    if package_file:
+        checked_paths.add(_root_anchored(package_file).rstrip("/"))
 
-    entries.sort(key=lambda entry: (not entry.is_dir(), entry.name.lower()))
-    return [
-        questionary.Choice(
-            title=entry.name + ("/" if entry.is_dir() else ""),
-            value="/{}/".format(entry.name) if entry.is_dir() else "/{}".format(entry.name),
-            checked=entry.name in checked_entries,
+    choices: List[Any] = []
+
+    def add_directory(directory: Path, relative_dir: Path, depth: int) -> None:
+        try:
+            entries = [
+                entry for entry in directory.iterdir() if entry.name not in _FILE_PICKER_EXCLUSIONS
+            ]
+        except OSError:
+            return
+
+        entries.sort(
+            key=lambda entry: (
+                not (entry.is_dir() and not entry.is_symlink()),
+                entry.name.lower(),
+            )
         )
-        for entry in entries
-    ]
+        for entry in entries:
+            relative_path = relative_dir / entry.name
+            relative_value = relative_path.as_posix()
+            is_directory = entry.is_dir() and not entry.is_symlink()
+            value = "/{}/".format(relative_value) if is_directory else "/{}".format(relative_value)
+            title = "{}- {}{}".format(
+                "  " * depth,
+                entry.name,
+                "/ (all files)" if is_directory else "",
+            )
+            choices.append(
+                questionary.Choice(
+                    title=title,
+                    value=value,
+                    checked=value.rstrip("/") in checked_paths,
+                )
+            )
+            if is_directory:
+                add_directory(entry, relative_path, depth + 1)
+
+    add_directory(Path(project_dir), Path(), 0)
+    return choices
+
+
+def _collapse_file_selections(files: Tuple[str, ...]) -> Tuple[str, ...]:
+    selected_folders = [pattern for pattern in files if pattern.endswith("/")]
+    return tuple(
+        pattern
+        for pattern in files
+        if not any(pattern != folder and pattern.startswith(folder) for folder in selected_folders)
+    )
 
 
 def _root_anchored(path: str) -> str:
@@ -460,19 +459,20 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
             )
         }
 
-    file_choices = _top_level_file_choices(project_dir, entrypoint, package_file)
+    file_choices = _file_tree_choices(project_dir, entrypoint, package_file)
     if not file_choices:
-        raise click.ClickException("No top-level files or folders are available for selection.")
+        raise click.ClickException("No project files or folders are available for selection.")
     _note("The chosen entrypoint and dependency file start selected.")
-    _note("Folders include everything beneath them. Press A to toggle all entries.")
+    _note("Folders select everything beneath them; indented rows select individual paths.")
+    _note("Press A to toggle all entries.")
     selected_files = _ask(
         _checkbox(
-            "Select the top-level files and folders to include",
+            "Select the project files and folders to include",
             choices=file_choices,
             validate=lambda selected: bool(selected) or "Select at least one file or folder.",
         )
     )
-    files = tuple(selected_files)
+    files = _collapse_file_selections(tuple(selected_files))
 
     return {
         "content_type": content_type,
