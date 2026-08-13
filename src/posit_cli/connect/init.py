@@ -87,8 +87,22 @@ def _entrypoint_suffixes(content_type: str) -> Tuple[str, ...]:
     return ()
 
 
+def _single_existing_default(
+    project_dir: str,
+    candidates: Tuple[str, ...],
+    fallback: str,
+) -> str:
+    existing = [name for name in candidates if (Path(project_dir) / name).is_file()]
+    return existing[0] if len(existing) == 1 else fallback
+
+
 def _entrypoint_choices(project_dir: str, content_type: str) -> Tuple[List[Any], str]:
     if content_type.startswith("python-"):
+        default = _single_existing_default(
+            project_dir,
+            ("app.py", "main.py"),
+            "app.py",
+        )
         return (
             [
                 questionary.Choice("app.py", value="app.py"),
@@ -98,7 +112,7 @@ def _entrypoint_choices(project_dir: str, content_type: str) -> Tuple[List[Any],
                     value=_OTHER_ENTRYPOINT,
                 ),
             ],
-            "app.py",
+            default,
         )
 
     suffixes = _entrypoint_suffixes(content_type)
@@ -127,7 +141,12 @@ def _entrypoint_choices(project_dir: str, content_type: str) -> Tuple[List[Any],
     return choices, default
 
 
-def _package_file_choices() -> Tuple[Tuple[Any, ...], str]:
+def _package_file_choices(project_dir: str) -> Tuple[Tuple[Any, ...], str]:
+    default = _single_existing_default(
+        project_dir,
+        ("requirements.txt", "pyproject.toml"),
+        "requirements.txt",
+    )
     return (
         (
             questionary.Choice(
@@ -143,7 +162,7 @@ def _package_file_choices() -> Tuple[Tuple[Any, ...], str]:
                 value=_OTHER_PACKAGE_FILE,
             ),
         ),
-        "requirements.txt",
+        default,
     )
 
 
@@ -397,7 +416,7 @@ def collect_init_answers(project_dir: str) -> Dict[str, Any]:
     python: Optional[Dict[str, str]] = None
     package_file: Optional[str] = None
     if spec.language == "python":
-        package_file_choices, package_file_default = _package_file_choices()
+        package_file_choices, package_file_default = _package_file_choices(project_dir)
         _note("Choose requirements.txt, pyproject.toml, or another dependency file.")
         package_file = _ask(
             _select(

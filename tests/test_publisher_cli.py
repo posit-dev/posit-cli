@@ -190,9 +190,11 @@ def test_interactive_publish_init_detects_entrypoints_and_defaults(runner):
         Path("main.py").write_text("", encoding="utf-8")
         Path("app.py").write_text("", encoding="utf-8")
         Path("notes.txt").write_text("", encoding="utf-8")
+        Path("requirements.txt").write_text("", encoding="utf-8")
+        Path("pyproject.toml").write_text("", encoding="utf-8")
 
         choices, default = init_mod._entrypoint_choices(".", "python-fastapi")
-        package_choices, package_default = init_mod._package_file_choices()
+        package_choices, package_default = init_mod._package_file_choices(".")
 
     assert [choice.value for choice in choices] == [
         "app.py",
@@ -207,6 +209,31 @@ def test_interactive_publish_init_detects_entrypoints_and_defaults(runner):
     ]
     assert package_default == "requirements.txt"
     assert publish_mod._PYTHON_PACKAGE_MANAGERS[0] == "uv"
+
+
+@pytest.mark.parametrize(
+    ("entrypoint_file", "package_file", "expected_entrypoint", "expected_package"),
+    [
+        ("main.py", "pyproject.toml", "main.py", "pyproject.toml"),
+        ("app.py", "requirements.txt", "app.py", "requirements.txt"),
+    ],
+)
+def test_interactive_publish_init_prefers_single_existing_choice(
+    runner,
+    entrypoint_file,
+    package_file,
+    expected_entrypoint,
+    expected_package,
+):
+    with runner.isolated_filesystem():
+        Path(entrypoint_file).write_text("", encoding="utf-8")
+        Path(package_file).write_text("", encoding="utf-8")
+
+        _, entrypoint_default = init_mod._entrypoint_choices(".", "python-fastapi")
+        _, package_default = init_mod._package_file_choices(".")
+
+    assert entrypoint_default == expected_entrypoint
+    assert package_default == expected_package
 
 
 def test_interactive_publish_init_detects_content_specific_entrypoints(runner):
