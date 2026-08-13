@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --python 3.13 --extra test
-      - name: Test init and publish against Posit Connect
+      - name: Test publish setup and deployment against Posit Connect
         uses: posit-dev/with-connect@main
         with:
           version: release

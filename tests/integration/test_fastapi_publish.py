@@ -90,19 +90,22 @@ def _only_record(project_dir):
     return read_record(paths[0])
 
 
-def test_init_and_republish_fastapi(tmp_path):
+def test_publish_init_and_republish_fastapi(tmp_path):
     server, api_key = _connect_credentials()
     project_dir = tmp_path / "fastapi"
     home_dir = tmp_path / "home"
-    shutil.copytree(FIXTURE_DIR, project_dir)
+    project_dir.mkdir()
+    for filename in ("app.py", "pyproject.toml", "requirements.txt"):
+        shutil.copy2(FIXTURE_DIR / filename, project_dir / filename)
     home_dir.mkdir()
 
     _run_posit(
         project_dir,
         home_dir,
         "connect",
-        "init",
+        "publish",
         ".",
+        "--init",
         "--type",
         "python-fastapi",
         "--entrypoint",

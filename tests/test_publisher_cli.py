@@ -1,4 +1,4 @@
-"""Tests for the Publisher-backed init and publish commands."""
+"""Tests for the Publisher-backed publish workflow."""
 
 import importlib
 from pathlib import Path
@@ -21,17 +21,17 @@ def runner():
     return CliRunner()
 
 
-def test_init_without_flags_requires_tty(runner):
+def test_publish_init_without_flags_requires_tty(runner):
     with patch.object(init_mod, "_is_interactive", return_value=False):
         with patch.object(init_mod.questionary, "select") as select:
-            result = runner.invoke(cli, ["connect", "init"])
+            result = runner.invoke(cli, ["connect", "publish", "--init"])
 
     assert result.exit_code == 2
     assert "Interactive input is unavailable" in result.output
     assert not select.called
 
 
-def test_init_explicit_flags_build_request(runner):
+def test_publish_init_explicit_flags_build_request(runner):
     initialized = SimpleNamespace(
         config_name="sales", config_path="/project/.posit/publish/sales.toml"
     )
@@ -40,7 +40,8 @@ def test_init_explicit_flags_build_request(runner):
             cli,
             [
                 "connect",
-                "init",
+                "publish",
+                "--init",
                 "--type",
                 "python-fastapi",
                 "--entrypoint",
@@ -71,10 +72,10 @@ def test_init_explicit_flags_build_request(runner):
         "package_manager": "uv",
     }
     assert request.files == ("app.py", "src/**", "/pyproject.toml")
-    assert "Initialized sales" in result.output
+    assert "Configured sales" in result.output
 
 
-def test_init_writes_publisher_config(runner):
+def test_publish_init_writes_publisher_config(runner):
     from rsconnect.publisher import config
 
     with runner.isolated_filesystem():
@@ -84,7 +85,8 @@ def test_init_writes_publisher_config(runner):
             cli,
             [
                 "connect",
-                "init",
+                "publish",
+                "--init",
                 "--type",
                 "python-fastapi",
                 "--entrypoint",
@@ -116,19 +118,20 @@ def test_init_writes_publisher_config(runner):
         assert "/pyproject.toml" in initialized.files
 
 
-def test_init_explicit_mode_requires_type_and_entrypoint(runner):
-    result = runner.invoke(cli, ["connect", "init", "--title", "Incomplete"])
+def test_publish_init_explicit_mode_requires_type_and_entrypoint(runner):
+    result = runner.invoke(cli, ["connect", "publish", "--init", "--title", "Incomplete"])
 
     assert result.exit_code == 2
     assert "--type and --entrypoint are required" in result.output
 
 
-def test_init_quarto_requires_version(runner):
+def test_publish_init_quarto_requires_version(runner):
     result = runner.invoke(
         cli,
         [
             "connect",
-            "init",
+            "publish",
+            "--init",
             "--type",
             "quarto-static",
             "--entrypoint",
@@ -140,7 +143,7 @@ def test_init_quarto_requires_version(runner):
     assert "--quarto-version is required" in result.output
 
 
-def test_interactive_init_collects_python_answers(runner):
+def test_interactive_publish_init_collects_python_answers(runner):
     initialized = SimpleNamespace(
         config_name="sales", config_path="/project/.posit/publish/sales.toml"
     )
@@ -160,7 +163,7 @@ def test_interactive_init_collects_python_answers(runner):
             with patch.object(
                 init_mod, "initialize_project", return_value=initialized
             ) as initialize:
-                result = runner.invoke(cli, ["connect", "init"])
+                result = runner.invoke(cli, ["connect", "publish", "--init"])
 
     assert result.exit_code == 0, result.output
     request = initialize.call_args.args[0]
@@ -177,11 +180,11 @@ def test_interactive_init_collects_python_answers(runner):
     assert " | |  | Posit Connect" in result.output
     assert "  \\ \\/" in result.output
     assert "Configure a project for Posit Connect" in result.output
-    assert "[OK] Publisher project initialized" in result.output
+    assert "[OK] Project configured for publishing" in result.output
     assert "posit connect publish . --server <connect-url>" in result.output
 
 
-def test_interactive_init_detects_entrypoints_and_defaults(runner):
+def test_interactive_publish_init_detects_entrypoints_and_defaults(runner):
     with runner.isolated_filesystem():
         Path("worker.py").write_text("", encoding="utf-8")
         Path("main.py").write_text("", encoding="utf-8")
@@ -203,10 +206,10 @@ def test_interactive_init_detects_entrypoints_and_defaults(runner):
         init_mod._OTHER_PACKAGE_FILE,
     ]
     assert package_default == "requirements.txt"
-    assert init_mod._PYTHON_PACKAGE_MANAGERS[0] == "uv"
+    assert publish_mod._PYTHON_PACKAGE_MANAGERS[0] == "uv"
 
 
-def test_interactive_init_detects_content_specific_entrypoints(runner):
+def test_interactive_publish_init_detects_content_specific_entrypoints(runner):
     with runner.isolated_filesystem():
         Path("app.py").write_text("", encoding="utf-8")
         Path("report.ipynb").write_text("{}", encoding="utf-8")
@@ -264,7 +267,7 @@ def test_required_files_are_added_after_manual_selection():
     )
 
 
-def test_interactive_init_accepts_custom_entrypoint_and_package_file():
+def test_interactive_publish_init_accepts_custom_entrypoint_and_package_file():
     with patch.object(
         init_mod,
         "_ask",
@@ -290,7 +293,7 @@ def test_interactive_init_accepts_custom_entrypoint_and_package_file():
     assert answers["files"] == ("/src/", "/requirements/")
 
 
-def test_interactive_quarto_asks_mode_and_version(runner):
+def test_interactive_publish_init_quarto_asks_mode_and_version(runner):
     initialized = SimpleNamespace(
         config_name="report", config_path="/project/.posit/publish/report.toml"
     )
@@ -310,7 +313,7 @@ def test_interactive_quarto_asks_mode_and_version(runner):
             with patch.object(
                 init_mod, "initialize_project", return_value=initialized
             ) as initialize:
-                result = runner.invoke(cli, ["connect", "init"])
+                result = runner.invoke(cli, ["connect", "publish", "--init"])
 
     assert result.exit_code == 0, result.output
     request = initialize.call_args.args[0]
@@ -319,18 +322,18 @@ def test_interactive_quarto_asks_mode_and_version(runner):
     assert request.files == ("*", "/report.qmd")
 
 
-def test_interactive_init_aborts_cleanly(runner):
+def test_interactive_publish_init_aborts_cleanly(runner):
     prompt = MagicMock()
     prompt.unsafe_ask.side_effect = KeyboardInterrupt
     with patch.object(init_mod, "_is_interactive", return_value=True):
         with patch.object(init_mod.questionary, "select", return_value=prompt):
-            result = runner.invoke(cli, ["connect", "init"])
+            result = runner.invoke(cli, ["connect", "publish", "--init"])
 
     assert result.exit_code == 1
     assert "Aborted!" in result.output
 
 
-def test_init_wraps_rsconnect_errors(runner):
+def test_publish_init_wraps_rsconnect_errors(runner):
     with patch.object(
         init_mod,
         "initialize_project",
@@ -340,7 +343,8 @@ def test_init_wraps_rsconnect_errors(runner):
             cli,
             [
                 "connect",
-                "init",
+                "publish",
+                "--init",
                 "--type",
                 "html",
                 "--entrypoint",
@@ -355,34 +359,35 @@ def test_init_wraps_rsconnect_errors(runner):
 
 def test_publish_maps_all_request_fields(runner):
     published = SimpleNamespace(content_url="https://connect.example/content/abc/")
-    with patch.object(publish_mod, "publish_project", return_value=published) as publish:
-        result = runner.invoke(
-            cli,
-            [
-                "connect",
-                "publish",
-                ".",
-                "--config",
-                "sales-api",
-                "--deployment",
-                "production",
-                "--server",
-                "https://connect.example",
-                "--api-key",
-                "secret",
-                "--snowflake-connection-name",
-                "snowflake-prod",
-                "--no-tls-verify",
-                "--content-id",
-                "guid-1",
-                "--draft",
-                "--no-verify",
-                "--exclude-renv",
-                "--metadata",
-                "git_commit=abc",
-                "--no-metadata",
-            ],
-        )
+    with patch.object(publish_mod, "discover_configs", return_value=["config.toml"]):
+        with patch.object(publish_mod, "publish_project", return_value=published) as publish:
+            result = runner.invoke(
+                cli,
+                [
+                    "connect",
+                    "publish",
+                    ".",
+                    "--config",
+                    "sales-api",
+                    "--deployment",
+                    "production",
+                    "--server",
+                    "https://connect.example",
+                    "--api-key",
+                    "secret",
+                    "--snowflake-connection-name",
+                    "snowflake-prod",
+                    "--no-tls-verify",
+                    "--content-id",
+                    "guid-1",
+                    "--draft",
+                    "--no-verify",
+                    "--exclude-renv",
+                    "--metadata",
+                    "git_commit=abc",
+                    "--no-metadata",
+                ],
+            )
 
     assert result.exit_code == 0, result.output
     request = publish.call_args.args[0]
@@ -404,21 +409,64 @@ def test_publish_maps_all_request_fields(runner):
 
 def test_publish_server_name_alias(runner):
     published = SimpleNamespace(content_url="https://connect.example/content/abc/")
-    with patch.object(publish_mod, "publish_project", return_value=published) as publish:
-        result = runner.invoke(cli, ["connect", "publish", "--name", "production"])
+    with patch.object(publish_mod, "discover_configs", return_value=["config.toml"]):
+        with patch.object(publish_mod, "publish_project", return_value=published) as publish:
+            result = runner.invoke(cli, ["connect", "publish", "--name", "production"])
 
     assert result.exit_code == 0, result.output
     assert publish.call_args.args[0].server_name == "production"
 
 
 def test_publish_wraps_rsconnect_errors(runner):
-    with patch.object(
-        publish_mod,
-        "publish_project",
-        side_effect=RSConnectException("specify server for the first publish"),
-    ):
-        result = runner.invoke(cli, ["connect", "publish"])
+    with patch.object(publish_mod, "discover_configs", return_value=["config.toml"]):
+        with patch.object(
+            publish_mod,
+            "publish_project",
+            side_effect=RSConnectException("specify server for the first publish"),
+        ):
+            result = runner.invoke(cli, ["connect", "publish"])
 
     assert result.exit_code == 1
     assert "specify server for the first publish" in result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_publish_auto_initializes_fresh_interactive_project(runner):
+    initialized = SimpleNamespace(
+        config_name="sales", config_path="/project/.posit/publish/sales.toml"
+    )
+    published = SimpleNamespace(content_url="https://connect.example/content/abc/")
+    with patch.object(publish_mod, "discover_configs", return_value=[]):
+        with patch.object(init_mod, "_is_interactive", return_value=True):
+            with patch.object(
+                init_mod, "initialize_publish_project", return_value=initialized
+            ) as initialize:
+                with patch.object(
+                    publish_mod, "publish_project", return_value=published
+                ) as publish:
+                    result = runner.invoke(cli, ["connect", "publish"])
+
+    assert result.exit_code == 0, result.output
+    assert initialize.call_args.kwargs["show_success"] is False
+    assert publish.call_args.args[0].config_name == "sales"
+    assert result.output.strip() == published.content_url
+
+
+def test_publish_fresh_noninteractive_project_explains_init(runner):
+    with patch.object(publish_mod, "discover_configs", return_value=[]):
+        with patch.object(init_mod, "_is_interactive", return_value=False):
+            result = runner.invoke(cli, ["connect", "publish"])
+
+    assert result.exit_code == 2
+    assert "No Publisher configuration found" in result.output
+    assert "posit connect publish --init" in result.output
+
+
+def test_publish_setup_options_require_init(runner):
+    result = runner.invoke(
+        cli,
+        ["connect", "publish", "--type", "python-fastapi", "--entrypoint", "app.py"],
+    )
+
+    assert result.exit_code == 2
+    assert "Project setup options require --init" in result.output

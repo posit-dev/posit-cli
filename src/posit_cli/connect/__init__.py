@@ -4,7 +4,6 @@ import click
 from rsconnect.main import cli as rsconnect_cli
 
 from .api import api as api_cmd
-from .init import init as init_cmd
 from .publish import publish as publish_cmd
 
 
@@ -26,5 +25,4 @@ for _name, _cmd in rsconnect_cli.commands.items():
     connect.add_command(_cmd, name=_name)
 
 connect.add_command(api_cmd, name="api")
-connect.add_command(init_cmd, name="init")
 connect.add_command(publish_cmd, name="publish")

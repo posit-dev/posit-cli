@@ -14,8 +14,6 @@ from rsconnect.publisher import CONTENT_TYPES, InitRequest, initialize_project
 
 
 _CONTENT_TYPES_BY_NAME = {spec.type: spec for spec in CONTENT_TYPES}
-_CONTENT_TYPE_NAMES = tuple(_CONTENT_TYPES_BY_NAME)
-_PYTHON_PACKAGE_MANAGERS = ("uv", "pip", "none")
 _OTHER_ENTRYPOINT = "__other_entrypoint__"
 _OTHER_PACKAGE_FILE = "__other_package_file__"
 _INCLUDE_ALL_FILES = "__include_all_files__"
@@ -334,7 +332,7 @@ def _show_success(project_dir: str, config_path: str) -> None:
     )
 
     click.echo()
-    click.secho("[OK] Publisher project initialized", fg="green", bold=True)
+    click.secho("[OK] Project configured for publishing", fg="green", bold=True)
     click.echo(click.style("     Config  ", fg="bright_black") + displayed_config)
     click.echo(
         click.style("     Next    ", fg="bright_black")
@@ -496,63 +494,25 @@ def _explicit_init_requested(
     content_type: Optional[str],
     entrypoint: Optional[str],
     title: Optional[str],
-    config_name: Optional[str],
     package_file: Optional[str],
     package_manager: Optional[str],
     quarto_version: Optional[str],
     files: Tuple[str, ...],
-    overwrite: bool,
 ) -> bool:
     return any(
         (
             content_type,
             entrypoint,
             title,
-            config_name,
             package_file,
             package_manager,
             quarto_version,
             files,
-            overwrite,
         )
     )
 
 
-@click.command(
-    "init",
-    short_help="Initialize a project for publishing.",
-    context_settings={"help_option_names": ["-h", "--help"]},
-)
-@click.argument(
-    "project_dir",
-    default=".",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-)
-@click.option(
-    "--type",
-    "content_type",
-    type=click.Choice(_CONTENT_TYPE_NAMES, case_sensitive=False),
-    help="Publisher content type.",
-)
-@click.option("--entrypoint", help="Application entrypoint, such as app.py:app.")
-@click.option("--title", help="Content title.")
-@click.option("--config", "config_name", help="Publisher configuration name.")
-@click.option("--package-file", help="Python dependency file.")
-@click.option(
-    "--package-manager",
-    type=click.Choice(_PYTHON_PACKAGE_MANAGERS, case_sensitive=False),
-    help="Python package manager.",
-)
-@click.option("--quarto-version", help="Required Quarto version.")
-@click.option(
-    "--file",
-    "files",
-    multiple=True,
-    metavar="PATTERN",
-    help="Include file pattern. May be specified multiple times.",
-)
-@click.option("--overwrite", is_flag=True, help="Replace an existing configuration.")
-def init(
+def initialize_publish_project(
     project_dir: str,
     content_type: Optional[str],
     entrypoint: Optional[str],
@@ -563,18 +523,17 @@ def init(
     quarto_version: Optional[str],
     files: Tuple[str, ...],
     overwrite: bool,
-) -> None:
-    """Create a .posit/publish configuration in PROJECT_DIR."""
+    show_success: bool = True,
+) -> Any:
+    """Create a Publisher configuration and return the initialization result."""
     explicit = _explicit_init_requested(
         content_type,
         entrypoint,
         title,
-        config_name,
         package_file,
         package_manager,
         quarto_version,
         files,
-        overwrite,
     )
 
     answers: Dict[str, Any] = {}
@@ -632,7 +591,9 @@ def init(
     except RSConnectException as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if answers:
-        _show_success(project_dir, result.config_path)
-    else:
-        click.echo("Initialized {} at {}".format(result.config_name, result.config_path))
+    if show_success:
+        if answers:
+            _show_success(project_dir, result.config_path)
+        else:
+            click.echo("Configured {} at {}".format(result.config_name, result.config_path))
+    return result

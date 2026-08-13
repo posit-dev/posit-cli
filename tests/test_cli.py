@@ -21,8 +21,8 @@ def test_connect_mounts_api_command(runner):
     result = runner.invoke(cli, ["connect", "--help"])
     assert result.exit_code == 0
     assert "api" in result.output
-    assert "init" in result.output
     assert "publish" in result.output
+    assert "\n  init " not in result.output
 
 
 # rsconnect commands we expect to re-expose under `posit connect`.

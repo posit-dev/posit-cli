@@ -1,15 +1,46 @@
-"""Publish a project from its .posit/publish configuration."""
+"""Configure and publish projects with Posit Publisher."""
 
 from typing import Optional, Tuple
 
 import click
 from rsconnect.exception import RSConnectException
-from rsconnect.publisher import PublishRequest, publish_project
+from rsconnect.publisher import CONTENT_TYPES, PublishRequest, publish_project
+from rsconnect.publisher.config import discover_configs
+
+from . import init as init_workflow
+
+
+_CONTENT_TYPE_NAMES = tuple(spec.type for spec in CONTENT_TYPES)
+_PYTHON_PACKAGE_MANAGERS = ("uv", "pip", "none")
+
+
+def _setup_options_requested(
+    content_type: Optional[str],
+    entrypoint: Optional[str],
+    title: Optional[str],
+    package_file: Optional[str],
+    package_manager: Optional[str],
+    quarto_version: Optional[str],
+    files: Tuple[str, ...],
+    overwrite: bool,
+) -> bool:
+    return any(
+        (
+            content_type,
+            entrypoint,
+            title,
+            package_file,
+            package_manager,
+            quarto_version,
+            files,
+            overwrite,
+        )
+    )
 
 
 @click.command(
     "publish",
-    short_help="Publish an initialized project.",
+    short_help="Configure or publish a project.",
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 @click.argument(
@@ -17,7 +48,43 @@ from rsconnect.publisher import PublishRequest, publish_project
     default=".",
     type=click.Path(exists=True, file_okay=False, resolve_path=True),
 )
+@click.option(
+    "--init",
+    "initialize_only",
+    is_flag=True,
+    help="Configure the project for publishing without publishing it.",
+)
+@click.option(
+    "--type",
+    "content_type",
+    type=click.Choice(_CONTENT_TYPE_NAMES, case_sensitive=False),
+    help="Publisher content type. Requires --init.",
+)
+@click.option(
+    "--entrypoint",
+    help="Application entrypoint, such as app.py:app. Requires --init.",
+)
+@click.option("--title", help="Content title. Requires --init.")
 @click.option("--config", "config_name", help="Publisher configuration name.")
+@click.option("--package-file", help="Python dependency file. Requires --init.")
+@click.option(
+    "--package-manager",
+    type=click.Choice(_PYTHON_PACKAGE_MANAGERS, case_sensitive=False),
+    help="Python package manager. Requires --init.",
+)
+@click.option("--quarto-version", help="Required Quarto version. Requires --init.")
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    metavar="PATTERN",
+    help="Include file pattern. Requires --init; may be repeated.",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Replace an existing Publisher configuration. Requires --init.",
+)
 @click.option("--deployment", "deployment_name", help="Deployment record name.")
 @click.option(
     "--server",
@@ -73,7 +140,16 @@ from rsconnect.publisher import PublishRequest, publish_project
 def publish(
     ctx: click.Context,
     project_dir: str,
+    initialize_only: bool,
+    content_type: Optional[str],
+    entrypoint: Optional[str],
+    title: Optional[str],
     config_name: Optional[str],
+    package_file: Optional[str],
+    package_manager: Optional[str],
+    quarto_version: Optional[str],
+    files: Tuple[str, ...],
+    overwrite: bool,
     deployment_name: Optional[str],
     server: Optional[str],
     server_name: Optional[str],
@@ -88,7 +164,58 @@ def publish(
     metadata: Tuple[str, ...],
     no_metadata: bool,
 ) -> None:
-    """Publish PROJECT_DIR using its .posit/publish configuration."""
+    """Publish PROJECT_DIR, configuring it first when needed."""
+    setup_requested = _setup_options_requested(
+        content_type,
+        entrypoint,
+        title,
+        package_file,
+        package_manager,
+        quarto_version,
+        files,
+        overwrite,
+    )
+    if setup_requested and not initialize_only:
+        raise click.UsageError(
+            "Project setup options require --init; use 'posit connect publish --init'."
+        )
+
+    if initialize_only:
+        init_workflow.initialize_publish_project(
+            project_dir=project_dir,
+            content_type=content_type,
+            entrypoint=entrypoint,
+            title=title,
+            config_name=config_name,
+            package_file=package_file,
+            package_manager=package_manager,
+            quarto_version=quarto_version,
+            files=files,
+            overwrite=overwrite,
+        )
+        return
+
+    if not discover_configs(project_dir):
+        if not init_workflow._is_interactive():
+            raise click.UsageError(
+                "No Publisher configuration found. Run "
+                "'posit connect publish --init --type TYPE --entrypoint ENTRYPOINT' first."
+            )
+        initialized = init_workflow.initialize_publish_project(
+            project_dir=project_dir,
+            content_type=None,
+            entrypoint=None,
+            title=None,
+            config_name=config_name,
+            package_file=None,
+            package_manager=None,
+            quarto_version=None,
+            files=(),
+            overwrite=False,
+            show_success=False,
+        )
+        config_name = initialized.config_name
+
     try:
         result = publish_project(
             PublishRequest(

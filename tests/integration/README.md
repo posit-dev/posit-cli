@@ -1,7 +1,7 @@
 # Posit Connect integration tests
 
-These tests exercise `posit connect init` and `posit connect publish` against a
-live Posit Connect instance. Local runs require:
+These tests exercise `posit connect publish --init` and `posit connect publish`
+against a live Posit Connect instance. Local runs require:
 
 - Docker
 - A valid Posit Connect license at `.connect-license.lic` in the repository root
