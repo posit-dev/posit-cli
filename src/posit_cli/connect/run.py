@@ -63,6 +63,7 @@ class _ConnectClient(Protocol):
 class _ConnectExecutor(Protocol):
     client: _ConnectClient
 
+
 BundleBuilder = Callable[[Path, ProgramArguments, Optional[str]], BinaryIO]
 ExecutorFactory = Callable[..., _ConnectExecutor]
 ContentInvoker = Callable[[_ConnectClient, str], HTTPResponse]
