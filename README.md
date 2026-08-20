@@ -6,9 +6,9 @@ A friendly command-line interface for Posit products, in the spirit of [`gh`](ht
 $ posit connect login https://connect.example.com             # OAuth, tokens in your OS keyring
 $ posit connect api v1/user -q .username                      # gh-api-style raw request
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
-$ posit connect run hello.py                                  # run a Python program
-$ posit connect run ./hello                                   # run a directory project
-$ posit connect run hello.R                                   # run an R program
+$ posit connect run examples/hello.py                         # run a Python program
+$ posit connect run examples/hello                            # run a directory project
+$ posit connect run examples/hello.R                          # run an R program
 ```
 
 This project is in early-stage development and so far only supports Posit Connect's APIs.
@@ -76,11 +76,11 @@ Python uses a zero-dependency WSGI adapter; R uses a temporary Python API backed
 removed:
 
 ```console
-$ posit connect run hello.py
+$ posit connect run examples/hello.py
 hello from Connect
-$ posit connect run ./hello
+$ posit connect run examples/hello
 hello from Connect
-$ posit connect run hello.R
+$ posit connect run examples/hello.R
 Hello, world!
 ```
 
@@ -88,7 +88,7 @@ Arguments after `--` are passed to the program. Use `--detach` to deploy the
 temporary API and print its URL without invoking or removing it:
 
 ```console
-$ posit connect run hello.py -- --name Ada
+$ posit connect run examples/hello.py -- --name Ada
 https://connect.example.com/content/...
 ```
 

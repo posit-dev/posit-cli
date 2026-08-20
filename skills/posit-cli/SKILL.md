@@ -80,11 +80,11 @@ directory containing a runnable source file, and waits for its temporary API
 invocation to finish:
 
 ```console
-posit connect run hello.py
-posit connect run ./hello
-posit connect run hello.py -- --name Ada
-posit connect run hello.py --runtime python3.12 --detach
-posit connect run hello.R --runtime r4.5
+posit connect run examples/hello.py
+posit connect run examples/hello
+posit connect run examples/hello.py -- --name Ada
+posit connect run examples/hello.py --runtime python3.12 --detach
+posit connect run examples/hello.R --runtime r4.5
 ```
 
 For directory inputs, `__main__.py`, `main.py`, `app.py`, `main.R`, and `app.R`
