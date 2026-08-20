@@ -23,9 +23,8 @@ which has two halves:
   Connect API. This is your primary tool for anything that isn't a deploy: reading
   and writing content, users, groups, tags, environments, audit logs, etc.
 - **`posit connect run <file>`** — execute one Python or R source file through a
-  temporary Connect API. The compatibility implementation supports the
-  `standard` profile, optional runtime selection, script arguments, and
-  `--detach`.
+  temporary Connect API. The compatibility implementation supports optional
+  runtime selection, script arguments, and `--detach`.
 - **The full `rsconnect` command set** (`login`, `deploy`, `content`, `system`,
   `add`, `list`, ...) is mounted under `posit connect`, so those come for free and
   track [rsconnect-python](https://github.com/posit-dev/rsconnect-python) upstream.

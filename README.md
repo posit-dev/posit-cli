@@ -86,9 +86,8 @@ $ posit connect run hello.py -- --name Ada
 https://connect.example.com/content/...
 ```
 
-This compatibility path supports only the `standard` profile. R programs use
-the local R major/minor version by default; `--runtime r4.5` can override the
-version constraint. The Connect administrator must enable
+R programs use the local R major/minor version by default; `--runtime r4.5` can
+override the version constraint. The Connect administrator must enable
 `[Python] Flag = rpy2-cffi-mode-auto` for rpy2 content. The adapters are
 deliberately temporary until Connect exposes a native execution API.
 

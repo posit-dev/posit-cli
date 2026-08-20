@@ -123,16 +123,6 @@ def test_run_accepts_r_scripts(runner, tmp_path):
     build_bundle.assert_called_once_with(script, (), None)
 
 
-def test_run_rejects_unsupported_profile(runner, tmp_path):
-    script = tmp_path / "hello.py"
-    script.write_text("print('hello')\n", encoding="utf-8")
-
-    result = runner.invoke(cli, ["connect", "run", str(script), "--profile", "large"])
-
-    assert result.exit_code != 0
-    assert "supports only the 'standard' profile" in result.output
-
-
 def test_run_rejects_unsupported_files(runner, tmp_path):
     program = tmp_path / "hello.txt"
     program.write_text("hello\n", encoding="utf-8")

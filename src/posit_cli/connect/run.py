@@ -457,17 +457,12 @@ def _cleanup_content(
         )
 
 
-def _validate_run_options(path: Path, profile: str, runtime: Optional[str]) -> None:
+def _validate_run_options(path: Path, runtime: Optional[str]) -> None:
     suffix = path.suffix.lower()
     if suffix not in {".py", ".r"}:
         raise click.BadParameter(
             "PATH must be a Python or R file ending in .py or .R",
             param_hint="PATH",
-        )
-    if profile != "standard":
-        raise click.BadParameter(
-            "the legacy compatibility path supports only the 'standard' profile",
-            param_hint="--profile",
         )
     if suffix == ".py":
         _python_runtime_version(runtime)
@@ -543,12 +538,6 @@ def _execute_run(request: _RunRequest, dependencies: _RunDependencies) -> None:
 )
 @click.argument("program_args", nargs=-1, type=click.UNPROCESSED)
 @click.option(
-    "--profile",
-    default="standard",
-    show_default=True,
-    help="Dispatch profile. The legacy compatibility path supports standard only.",
-)
-@click.option(
     "--runtime",
     default=None,
     metavar="NAME",
@@ -595,7 +584,6 @@ def _execute_run(request: _RunRequest, dependencies: _RunDependencies) -> None:
 def run(
     path: Path,
     program_args: ProgramArguments,
-    profile: str,
     runtime: Optional[str],
     job_name: Optional[str],
     detach: bool,
@@ -610,7 +598,7 @@ def run(
     PATH must be a single ``.py`` or ``.R`` source file. Arguments after ``--``
     are passed to the submitted program.
     """
-    _validate_run_options(path, profile, runtime)
+    _validate_run_options(path, runtime)
     request = _RunRequest(
         path=path,
         program_args=program_args,
