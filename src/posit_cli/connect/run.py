@@ -7,9 +7,10 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable, Optional, Protocol, Tuple
+from typing import BinaryIO, Callable, Iterator, Optional, Protocol, Tuple
 
 import click
 from rsconnect.api import RSConnectException, RSConnectExecutor
@@ -62,9 +63,6 @@ class _ConnectClient(Protocol):
 class _ConnectExecutor(Protocol):
     client: _ConnectClient
 
-    def setup_client(self) -> None: ...
-
-
 BundleBuilder = Callable[[Path, ProgramArguments, Optional[str]], BinaryIO]
 ExecutorFactory = Callable[..., _ConnectExecutor]
 ContentInvoker = Callable[[_ConnectClient, str], HTTPResponse]
@@ -91,6 +89,18 @@ class _RunDependencies:
     bundle_builder: BundleBuilder
     content_invoker: ContentInvoker
     content_deleter: ContentDeleter
+
+
+@contextmanager
+def _client_connection(client: _ConnectClient) -> Iterator[_ConnectClient]:
+    """Reuse rsconnect's HTTP connection across the run lifecycle."""
+    if isinstance(client, HTTPServer):
+        with client:
+            yield client
+        return
+
+    # Keep lightweight test doubles and alternate clients usable.
+    yield client
 
 
 def _is_version(value: str) -> bool:
@@ -651,39 +661,39 @@ def _execute_run(request: _RunRequest, dependencies: _RunDependencies) -> None:
             insecure=request.insecure,
             cacert=request.cacert,
         )
-        executor.setup_client()
-
         client = executor.client
-        content = client.content_create(_content_name(request.path, request.job_name))
-        content_guid = _content_field(
-            content,
-            "guid",
-            "Connect returned no content GUID.",
-        )
-        content_url = _content_field(
-            content,
-            "content_url",
-            "Connect returned no content URL.",
-        )
+        with _client_connection(client):
+            try:
+                content = client.content_create(_content_name(request.path, request.job_name))
+                content_guid = _content_field(
+                    content,
+                    "guid",
+                    "Connect returned no content GUID.",
+                )
+                content_url = _content_field(
+                    content,
+                    "content_url",
+                    "Connect returned no content URL.",
+                )
 
-        _deploy_content(client, request, content_guid, dependencies.bundle_builder)
+                _deploy_content(client, request, content_guid, dependencies.bundle_builder)
 
-        if request.detach:
-            click.echo(content_url)
-            return
+                if request.detach:
+                    click.echo(content_url)
+                    return
 
-        response = dependencies.content_invoker(client, content_url)
-        _emit_response(response)
-        _ensure_successful_response(response)
+                response = dependencies.content_invoker(client, content_url)
+                _emit_response(response)
+                _ensure_successful_response(response)
+            finally:
+                _cleanup_content(
+                    executor,
+                    content_guid,
+                    request.detach,
+                    dependencies.content_deleter,
+                )
     except RSConnectException as exc:
         raise click.ClickException(str(exc)) from exc
-    finally:
-        _cleanup_content(
-            executor,
-            content_guid,
-            request.detach,
-            dependencies.content_deleter,
-        )
 
 
 @click.command(

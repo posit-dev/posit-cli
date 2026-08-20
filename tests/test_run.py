@@ -12,11 +12,16 @@ from click.testing import CliRunner
 
 from posit_cli.__main__ import cli
 from posit_cli.connect.run import (
+    _RunDependencies,
+    _RunRequest,
     _build_bundle,
     _build_r_bundle,
+    _client_connection,
+    _execute_run,
     _rpy2_wrapper_source,
     _wrapper_source,
 )
+from rsconnect.http_support import HTTPServer
 from rsconnect.models import AppModes
 
 
@@ -72,6 +77,96 @@ def test_run_creates_deploys_invokes_and_deletes_temporary_content(runner, tmp_p
         raise_on_error=False,
     )
     executor.client.delete.assert_called_once_with("v1/content/content-123", decode_response=False)
+    executor.setup_client.assert_not_called()
+
+
+class _TrackingClient(HTTPServer):
+    def __init__(self, events):
+        super().__init__("http://127.0.0.1")
+        self.events = events
+
+    def __enter__(self):
+        self.events.append("enter")
+        return self
+
+    def __exit__(self, *args):
+        self.events.append("exit")
+
+    def content_create(self, name):
+        self.events.append("create")
+        return {"guid": "content-123", "content_url": "https://connect.example.com/content-123"}
+
+    def upload_bundle(self, content_guid, bundle):
+        self.events.append("upload")
+        return {"id": "bundle-123"}
+
+    def content_deploy(self, content_guid, *, bundle_id):
+        self.events.append("deploy")
+        return {"task_id": "task-123"}
+
+    def wait_for_task(self, task_id, *, log_callback, raise_on_error):
+        self.events.append("wait")
+        return ([], {"code": 0})
+
+
+def test_run_reuses_client_connection_through_cleanup(tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    events = []
+    client = _TrackingClient(events)
+    executor = SimpleNamespace(client=client)
+    response = _app_response(b"hello\n")
+
+    def build_bundle(path, program_args, runtime):
+        events.append("build")
+        return io.BytesIO(b"bundle")
+
+    def invoke_content(content_client, content_url):
+        events.append("invoke")
+        return response
+
+    def delete_content(content_client, content_guid):
+        events.append("delete")
+
+    dependencies = _RunDependencies(
+        executor_factory=lambda **kwargs: executor,
+        bundle_builder=build_bundle,
+        content_invoker=invoke_content,
+        content_deleter=delete_content,
+    )
+    request = _RunRequest(
+        path=script,
+        program_args=(),
+        runtime=None,
+        job_name=None,
+        detach=False,
+        server_name=None,
+        server=None,
+        api_key=None,
+        insecure=False,
+        cacert=None,
+    )
+
+    _execute_run(request, dependencies)
+
+    assert events == [
+        "enter",
+        "create",
+        "build",
+        "upload",
+        "deploy",
+        "wait",
+        "invoke",
+        "delete",
+        "exit",
+    ]
+
+
+def test_client_connection_leaves_alternate_clients_untouched():
+    client = object()
+
+    with _client_connection(client) as connected:
+        assert connected is client
 
 
 def test_run_accepts_directory(runner, tmp_path):
