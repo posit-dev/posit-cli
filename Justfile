@@ -1,5 +1,9 @@
 # posit-cli task runner. Run `just --list` to see recipes.
 
+# Sync project and development dependencies into the project environment
+deps:
+    uv sync --all-extras
+
 # Run the test suite against a single Python version (default 3.13)
 test py="3.13":
     uv run --python {{py}} --extra test pytest tests
