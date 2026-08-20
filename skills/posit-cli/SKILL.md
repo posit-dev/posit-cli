@@ -3,8 +3,7 @@ name: posit-cli
 description: >-
   Use the `posit` CLI to work with Posit Connect — logging in, making raw
   authenticated calls to the Connect REST API (`posit connect api`, a
-  gh-api-style client), executing Python and R programs (`posit connect run`), and
-  deploying or managing content. Use this whenever the
+  gh-api-style client), and deploying or managing content. Use this whenever the
   user mentions `posit`, posit-cli, Posit Connect, the Connect API, or deploying
   apps/notebooks/APIs to Connect (Streamlit, Shiny, FastAPI, Flask, Dash, Quarto,
   Bokeh, Gradio, Panel, Voila, etc.), or managing Connect content, users, groups,
@@ -22,10 +21,6 @@ which has two halves:
 - **`posit connect api <path>`** — a `gh api`-style raw REST client for the
   Connect API. This is your primary tool for anything that isn't a deploy: reading
   and writing content, users, groups, tags, environments, audit logs, etc.
-- **`posit connect run <path>`** — execute one Python or R source file, or a
-  directory containing a runnable source file, through a temporary Connect API.
-  The compatibility implementation supports optional runtime selection, script
-  arguments, and `--detach`.
 - **The full `rsconnect` command set** (`login`, `deploy`, `content`, `system`,
   `add`, `list`, ...) is mounted under `posit connect`, so those come for free and
   track [rsconnect-python](https://github.com/posit-dev/rsconnect-python) upstream.
@@ -44,8 +39,7 @@ posit connect deploy --help       # the deploy subcommands (streamlit, shiny, ..
 ```
 
 `posit connect api --help` and the rest of this skill cover the `api` command,
-while `posit connect run --help` is the source of truth for the compatibility
-command.
+which is owned by this project and documented in full below.
 
 ## Authentication
 
@@ -72,35 +66,6 @@ Shared credential flags across `posit connect` commands: `-n/--name` (saved
 server), `-s/--server` (env `CONNECT_SERVER`), `-k/--api-key` (env
 `CONNECT_API_KEY`), `--no-tls-verify` (env `CONNECT_INSECURE`; note: rsconnect
 commands spell this `-i/--insecure`), `-c/--cacert <file>`.
-
-## `posit connect run`
-
-The initial compatibility client accepts one Python or R source file, or a
-directory containing a runnable source file, and waits for its temporary API
-invocation to finish:
-
-```console
-posit connect run examples/hello.py
-posit connect run examples/hello
-posit connect run examples/hello.py -- --name Ada
-posit connect run examples/hello.py --runtime python3.12 --detach
-posit connect run examples/hello.R --runtime r4.5
-```
-
-For directory inputs, `__main__.py`, `main.py`, `app.py`, `main.R`, and `app.R`
-are recognized automatically. A directory with exactly one Python or R source
-file may use any filename. Directory contents are included in the bundle.
-
-It creates content with `POST /v1/content`, uploads either a zero-dependency
-Python WSGI API bundle or a Python API bundle that runs R through `rpy2` with
-its R runtime metadata to
-`/v1/content/{guid}/bundles`, deploys it with
-`POST /v1/content/{guid}/deploy`, invokes the content URL, prints the captured
-output, and deletes the temporary content. `--detach` leaves the deployed
-content in place and prints its URL. R programs are submitted as Python API
-content using `rpy2`; the Connect administrator must enable
-`[Python] Flag = rpy2-cffi-mode-auto`. Native batch jobs, resource overrides, and
-artifact pulling are not implemented yet.
 
 ## `posit connect api` — the raw REST client
 
