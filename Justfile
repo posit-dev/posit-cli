@@ -29,6 +29,10 @@ smoke:
 install: build
     uv tool install --force "$(ls -t dist/*.whl | head -1)"
 
+# Install the project as an editable standalone uv tool
+dev:
+    uv tool install --editable --force .
+
 # Remove the installed standalone uv tool
 uninstall:
     uv tool uninstall posit-cli
