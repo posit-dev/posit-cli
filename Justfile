@@ -25,9 +25,9 @@ smoke:
     WHL=$(ls -t dist/*.whl | head -1)
     uv run --no-project --with "$WHL" posit --help
 
-# Install the most recently built wheel into the active environment
+# Install the most recently built wheel as a standalone uv tool
 install: build
-    uv pip install "$(ls -t dist/*.whl | head -1)"
+    uv tool install --force "$(ls -t dist/*.whl | head -1)"
 
 # Print the version that a build gets from the current git state
 version:
