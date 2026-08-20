@@ -7,8 +7,9 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Optional, Tuple
+from typing import BinaryIO, Callable, Optional, Protocol, Tuple
 
 import click
 from rsconnect.api import RSConnectException, RSConnectExecutor
@@ -20,6 +21,9 @@ from rsconnect.models import AppModes
 
 
 _RPY2_REQUIREMENT = "rpy2"
+_PYTHON_PROGRAM_FILENAME = "__posit_connect_run_program.py"
+_R_PROGRAM_FILENAME = "__posit_connect_run_program.R"
+_RUNNER_ENTRYPOINT = "runner:app"
 _PYTHON_PROJECT_METADATA = """\
 [project]
 name = "posit-connect-run"
@@ -27,43 +31,107 @@ version = "0.0.0"
 requires-python = ">=3.8"
 """
 
+ProgramArguments = Tuple[str, ...]
+
+
+class _ConnectClient(Protocol):
+    """The subset of the Connect client used by the run operation."""
+
+    def content_create(self, name: str) -> object: ...
+
+    def upload_bundle(self, content_guid: str, bundle: BinaryIO) -> object: ...
+
+    def content_deploy(self, content_guid: str, *, bundle_id: str) -> object: ...
+
+    def wait_for_task(
+        self,
+        task_id: str,
+        *,
+        log_callback: Optional[Callable[..., object]],
+        raise_on_error: bool,
+    ) -> Tuple[object, object]: ...
+
+    def delete(self, path: str, *, decode_response: bool) -> object: ...
+
+
+class _ConnectExecutor(Protocol):
+    client: _ConnectClient
+
+    def setup_client(self) -> None: ...
+
+
+BundleBuilder = Callable[[Path, ProgramArguments, Optional[str]], BinaryIO]
+ExecutorFactory = Callable[..., _ConnectExecutor]
+ContentInvoker = Callable[[_ConnectClient, str], HTTPResponse]
+ContentDeleter = Callable[[_ConnectClient, str], None]
+
+
+@dataclass(frozen=True)
+class _RunRequest:
+    path: Path
+    program_args: ProgramArguments
+    runtime: Optional[str]
+    job_name: Optional[str]
+    detach: bool
+    server_name: Optional[str]
+    server: Optional[str]
+    api_key: Optional[str]
+    insecure: bool
+    cacert: Optional[str]
+
+
+@dataclass(frozen=True)
+class _RunDependencies:
+    executor_factory: ExecutorFactory
+    bundle_builder: BundleBuilder
+    content_invoker: ContentInvoker
+    content_deleter: ContentDeleter
+
+
+def _is_version(value: str) -> bool:
+    return bool(value) and all(character.isdigit() or character == "." for character in value)
+
+
+def _runtime_version(
+    runtime: Optional[str],
+    *,
+    prefix: str,
+    description: str,
+    case_sensitive: bool,
+) -> Optional[str]:
+    if runtime is None:
+        return None
+
+    normalized_runtime = runtime if case_sensitive else runtime.lower()
+    if normalized_runtime == prefix:
+        return None
+    if not normalized_runtime.startswith(prefix):
+        raise click.BadParameter(description, param_hint="--runtime")
+
+    version = runtime[len(prefix) :]
+    if not _is_version(version):
+        raise click.BadParameter(description, param_hint="--runtime")
+    return version
+
 
 def _python_runtime_version(runtime: Optional[str]) -> Optional[str]:
     """Translate ``python`` or ``pythonX.Y`` into a manifest version."""
-    if runtime is None or runtime == "python":
-        return None
-    if not runtime.startswith("python"):
-        raise click.BadParameter(
-            "runtime must be 'python' or a Python version such as 'python3.12'",
-            param_hint="--runtime",
-        )
-
-    version = runtime[len("python") :]
-    if not version or any(not (character.isdigit() or character == ".") for character in version):
-        raise click.BadParameter(
-            "runtime must be 'python' or a Python version such as 'python3.12'",
-            param_hint="--runtime",
-        )
-    return version
+    return _runtime_version(
+        runtime,
+        prefix="python",
+        description="runtime must be 'python' or a Python version such as 'python3.12'",
+        case_sensitive=True,
+    )
 
 
 def _r_runtime_version(runtime: Optional[str]) -> Optional[str]:
     """Translate ``r`` or ``rX.Y`` into an R manifest version."""
-    if runtime is None or runtime.lower() == "r":
-        return None
-    if not runtime.lower().startswith("r"):
-        raise click.BadParameter(
-            "runtime must be 'r' or an R version such as 'r4.5'",
-            param_hint="--runtime",
-        )
-
-    version = runtime[1:]
-    if not version or any(not (character.isdigit() or character == ".") for character in version):
-        raise click.BadParameter(
-            "runtime must be 'r' or an R version such as 'r4.5'",
-            param_hint="--runtime",
-        )
-    return version
+    return _runtime_version(
+        runtime,
+        prefix="r",
+        description="runtime must be 'r' or an R version such as 'r4.5'",
+        case_sensitive=False,
+    )
 
 
 def _local_r_runtime_version() -> str:
@@ -99,7 +167,7 @@ def _r_manifest_version(runtime: Optional[str]) -> str:
     return _r_runtime_version(runtime) or _local_r_runtime_version()
 
 
-def _wrapper_source(program_args: Tuple[str, ...]) -> str:
+def _wrapper_source(program_args: ProgramArguments) -> str:
     """Create the small WSGI adapter used by the legacy content API."""
     encoded_args = json.dumps(list(program_args))
     return f"""\
@@ -107,7 +175,7 @@ import os
 import subprocess
 import sys
 
-PROGRAM = "__posit_connect_run_program.py"
+PROGRAM = "{_PYTHON_PROGRAM_FILENAME}"
 PROGRAM_ARGS = {encoded_args}
 
 
@@ -132,14 +200,14 @@ def app(_environ, start_response):
 """
 
 
-def _rpy2_wrapper_source(program_args: Tuple[str, ...]) -> str:
+def _rpy2_wrapper_source(program_args: ProgramArguments) -> str:
     """Create the WSGI adapter that evaluates the R program through rpy2."""
     encoded_args = json.dumps(list(program_args))
     return f'''\
 import contextlib
 import io
 
-PROGRAM = "__posit_connect_run_program.R"
+PROGRAM = "{_R_PROGRAM_FILENAME}"
 PROGRAM_ARGS = {encoded_args}
 
 
@@ -193,68 +261,118 @@ def app(_environ, start_response):
 '''
 
 
+def _write_bundle_files(
+    root: Path,
+    source_path: Path,
+    program_filename: str,
+    wrapper_source: str,
+    requirements: str,
+) -> None:
+    (root / program_filename).write_bytes(source_path.read_bytes())
+    (root / "runner.py").write_text(wrapper_source, encoding="utf-8")
+    (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
+    (root / "requirements.txt").write_text(requirements, encoding="utf-8")
+
+
+def _make_api_bundle(
+    directory: str,
+    environment: object,
+    r_environment: Optional[object] = None,
+) -> BinaryIO:
+    bundle_options = {
+        "extra_files": [],
+        "excludes": [],
+    }
+    if r_environment is not None:
+        bundle_options["r_environment"] = r_environment
+
+    return make_api_bundle(
+        directory,
+        _RUNNER_ENTRYPOINT,
+        AppModes.PYTHON_API,
+        environment,
+        **bundle_options,
+    )
+
+
 def _build_python_bundle(
     path: Path,
-    program_args: Tuple[str, ...],
+    program_args: ProgramArguments,
     runtime: Optional[str],
 ) -> BinaryIO:
     """Build a normal Python API bundle containing the program and adapter."""
     with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
         root = Path(directory)
-        (root / "__posit_connect_run_program.py").write_bytes(path.read_bytes())
-        (root / "runner.py").write_text(_wrapper_source(program_args), encoding="utf-8")
-        (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
-        (root / "requirements.txt").write_text("", encoding="utf-8")
+        _write_bundle_files(
+            root,
+            path,
+            _PYTHON_PROGRAM_FILENAME,
+            _wrapper_source(program_args),
+            "",
+        )
 
         environment = Environment.create_python_environment(
             directory,
             override_python_version=_python_runtime_version(runtime),
         )
-        return make_api_bundle(
-            directory,
-            "runner:app",
-            AppModes.PYTHON_API,
-            environment,
-            extra_files=[],
-            excludes=[],
-        )
+        return _make_api_bundle(directory, environment)
 
 
-def _build_r_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
+def _build_r_bundle(
+    path: Path,
+    program_args: ProgramArguments,
+    runtime: Optional[str],
+) -> BinaryIO:
     """Build a Python API bundle that runs the R program through rpy2."""
     with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
         root = Path(directory)
-        (root / "__posit_connect_run_program.R").write_bytes(path.read_bytes())
-        (root / "runner.py").write_text(_rpy2_wrapper_source(program_args), encoding="utf-8")
-        (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
-        (root / "requirements.txt").write_text(f"{_RPY2_REQUIREMENT}\n", encoding="utf-8")
+        _write_bundle_files(
+            root,
+            path,
+            _R_PROGRAM_FILENAME,
+            _rpy2_wrapper_source(program_args),
+            f"{_RPY2_REQUIREMENT}\n",
+        )
 
         environment = Environment.create_python_environment(directory)
         r_environment = REnvironment(r_version=_r_manifest_version(runtime), packages={})
-        return make_api_bundle(
-            directory,
-            "runner:app",
-            AppModes.PYTHON_API,
-            environment,
-            extra_files=[],
-            excludes=[],
-            r_environment=r_environment,
-        )
+        return _make_api_bundle(directory, environment, r_environment)
 
 
-def _build_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
+def _build_bundle(path: Path, program_args: ProgramArguments, runtime: Optional[str]) -> BinaryIO:
     if path.suffix.lower() == ".r":
         return _build_r_bundle(path, program_args, runtime)
     return _build_python_bundle(path, program_args, runtime)
 
 
 def _content_name(path: Path, job_name: Optional[str]) -> str:
-    if job_name:
-        return job_name
-    return f"posit-connect-run-{path.stem}-{uuid.uuid4().hex[:12]}"
+    return job_name or f"posit-connect-run-{path.stem}-{uuid.uuid4().hex[:12]}"
 
 
-def _wait_for_deployment(client: Any, deployment: Any) -> None:
+def _content_field(content: object, field: str, error_message: str) -> str:
+    if not isinstance(content, dict):
+        raise click.ClickException(error_message)
+
+    value = content.get(field)
+    if not isinstance(value, str) or not value:
+        raise click.ClickException(error_message)
+    return value
+
+
+def _deploy_content(
+    client: _ConnectClient,
+    request: _RunRequest,
+    content_guid: str,
+    bundle_builder: BundleBuilder,
+) -> None:
+    bundle = bundle_builder(request.path, request.program_args, request.runtime)
+    uploaded = client.upload_bundle(content_guid, bundle)
+    bundle_id = _content_field(uploaded, "id", "Connect returned no bundle ID.")
+    deployment = client.content_deploy(content_guid, bundle_id=bundle_id)
+    _wait_for_deployment(client, deployment)
+
+
+def _wait_for_deployment(client: _ConnectClient, deployment: object) -> None:
     if not isinstance(deployment, dict):
         raise click.ClickException("Connect returned an invalid deployment response.")
 
@@ -272,7 +390,7 @@ def _wait_for_deployment(client: Any, deployment: Any) -> None:
         raise click.ClickException(f"deployment failed: {detail}")
 
 
-def _content_response(client: Any, content_url: str) -> HTTPResponse:
+def _content_response(client: _ConnectClient, content_url: str) -> HTTPResponse:
     """Invoke the deployed content URL with the same auth and TLS settings."""
     app_server = HTTPServer(
         content_url,
@@ -300,13 +418,118 @@ def _emit_response(response: HTTPResponse) -> None:
         click.echo(text, nl=not text.endswith("\n"))
 
 
-def _delete_content(client: Any, content_guid: str) -> None:
+def _ensure_successful_response(response: HTTPResponse) -> None:
+    if response.exception:
+        raise click.ClickException(f"running content failed: {response.exception}")
+
+    status = getattr(response, "status", None)
+    if not isinstance(status, int) or not 200 <= status < 300:
+        raise click.exceptions.Exit(1)
+
+
+def _delete_content(client: _ConnectClient, content_guid: str) -> None:
     response = client.delete(f"v1/content/{content_guid}", decode_response=False)
     if isinstance(response, HTTPResponse):
         if response.exception:
             raise RSConnectException(str(response.exception))
-        if not 200 <= response.status < 300:
-            raise RSConnectException(f"HTTP {response.status} {response.reason}".rstrip())
+        status = getattr(response, "status", None)
+        if not isinstance(status, int) or not 200 <= status < 300:
+            reason = getattr(response, "reason", "")
+            raise RSConnectException(f"HTTP {status} {reason}".rstrip())
+
+
+def _cleanup_content(
+    executor: Optional[_ConnectExecutor],
+    content_guid: Optional[str],
+    detach: bool,
+    content_deleter: ContentDeleter,
+) -> None:
+    if executor is None or content_guid is None or detach:
+        return
+
+    try:
+        content_deleter(executor.client, content_guid)
+    except Exception as exc:
+        # Cleanup is best effort and must not hide the command's result.
+        click.echo(
+            f"Warning: unable to delete temporary content {content_guid}: {exc}",
+            err=True,
+        )
+
+
+def _validate_run_options(path: Path, profile: str, runtime: Optional[str]) -> None:
+    suffix = path.suffix.lower()
+    if suffix not in {".py", ".r"}:
+        raise click.BadParameter(
+            "PATH must be a Python or R file ending in .py or .R",
+            param_hint="PATH",
+        )
+    if profile != "standard":
+        raise click.BadParameter(
+            "the legacy compatibility path supports only the 'standard' profile",
+            param_hint="--profile",
+        )
+    if suffix == ".py":
+        _python_runtime_version(runtime)
+    else:
+        _r_runtime_version(runtime)
+
+
+def _default_run_dependencies() -> _RunDependencies:
+    """Assemble concrete adapters at the CLI composition root."""
+    return _RunDependencies(
+        executor_factory=RSConnectExecutor,
+        bundle_builder=_build_bundle,
+        content_invoker=_content_response,
+        content_deleter=_delete_content,
+    )
+
+
+def _execute_run(request: _RunRequest, dependencies: _RunDependencies) -> None:
+    executor: Optional[_ConnectExecutor] = None
+    content_guid: Optional[str] = None
+    try:
+        executor = dependencies.executor_factory(
+            ctx=None,
+            name=request.server_name,
+            url=request.server,
+            api_key=request.api_key,
+            insecure=request.insecure,
+            cacert=request.cacert,
+        )
+        executor.setup_client()
+
+        client = executor.client
+        content = client.content_create(_content_name(request.path, request.job_name))
+        content_guid = _content_field(
+            content,
+            "guid",
+            "Connect returned no content GUID.",
+        )
+        content_url = _content_field(
+            content,
+            "content_url",
+            "Connect returned no content URL.",
+        )
+
+        _deploy_content(client, request, content_guid, dependencies.bundle_builder)
+
+        if request.detach:
+            click.echo(content_url)
+            return
+
+        response = dependencies.content_invoker(client, content_url)
+        _emit_response(response)
+        _ensure_successful_response(response)
+    except RSConnectException as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        _cleanup_content(
+            executor,
+            content_guid,
+            request.detach,
+            dependencies.content_deleter,
+        )
 
 
 @click.command(
@@ -371,7 +594,7 @@ def _delete_content(client: Any, content_guid: str) -> None:
 )
 def run(
     path: Path,
-    program_args: Tuple[str, ...],
+    program_args: ProgramArguments,
     profile: str,
     runtime: Optional[str],
     job_name: Optional[str],
@@ -387,71 +610,17 @@ def run(
     PATH must be a single ``.py`` or ``.R`` source file. Arguments after ``--``
     are passed to the submitted program.
     """
-    suffix = path.suffix.lower()
-    if suffix not in {".py", ".r"}:
-        raise click.BadParameter(
-            "PATH must be a Python or R file ending in .py or .R",
-            param_hint="PATH",
-        )
-    if profile != "standard":
-        raise click.BadParameter(
-            "the legacy compatibility path supports only the 'standard' profile",
-            param_hint="--profile",
-        )
-    if suffix == ".py":
-        _python_runtime_version(runtime)
-    else:
-        _r_runtime_version(runtime)
-
-    executor: Optional[RSConnectExecutor] = None
-    content_guid: Optional[str] = None
-    try:
-        executor = RSConnectExecutor(
-            ctx=None,
-            name=server_name,
-            url=server,
-            api_key=api_key,
-            insecure=insecure,
-            cacert=cacert,
-        )
-        executor.setup_client()
-
-        client = executor.client
-        content = client.content_create(_content_name(path, job_name))
-        content_guid = content.get("guid") if isinstance(content, dict) else None
-        content_url = content.get("content_url") if isinstance(content, dict) else None
-        if not isinstance(content_guid, str) or not content_guid:
-            raise click.ClickException("Connect returned no content GUID.")
-        if not isinstance(content_url, str) or not content_url:
-            raise click.ClickException("Connect returned no content URL.")
-
-        bundle = _build_bundle(path, program_args, runtime)
-        uploaded = client.upload_bundle(content_guid, bundle)
-        bundle_id = uploaded.get("id") if isinstance(uploaded, dict) else None
-        if not isinstance(bundle_id, str) or not bundle_id:
-            raise click.ClickException("Connect returned no bundle ID.")
-
-        deployment = client.content_deploy(content_guid, bundle_id=bundle_id)
-        _wait_for_deployment(client, deployment)
-
-        if detach:
-            click.echo(content_url)
-            return
-
-        response = _content_response(client, content_url)
-        _emit_response(response)
-        if response.exception:
-            raise click.ClickException(f"running content failed: {response.exception}")
-        if not 200 <= response.status < 300:
-            raise click.exceptions.Exit(1)
-    except RSConnectException as exc:
-        raise click.ClickException(str(exc)) from exc
-    finally:
-        if content_guid and not detach and executor is not None:
-            try:
-                _delete_content(executor.client, content_guid)
-            except Exception as exc:
-                click.echo(
-                    f"Warning: unable to delete temporary content {content_guid}: {exc}",
-                    err=True,
-                )
+    _validate_run_options(path, profile, runtime)
+    request = _RunRequest(
+        path=path,
+        program_args=program_args,
+        runtime=runtime,
+        job_name=job_name,
+        detach=detach,
+        server_name=server_name,
+        server=server,
+        api_key=api_key,
+        insecure=insecure,
+        cacert=cacert,
+    )
+    _execute_run(request, _default_run_dependencies())
