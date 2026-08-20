@@ -74,6 +74,25 @@ def test_run_creates_deploys_invokes_and_deletes_temporary_content(runner, tmp_p
     executor.client.delete.assert_called_once_with("v1/content/content-123", decode_response=False)
 
 
+def test_run_accepts_directory(runner, tmp_path):
+    project = tmp_path / "hello-world"
+    project.mkdir()
+    (project / "app.py").write_text("print('hello from Connect')\n", encoding="utf-8")
+    executor = _mock_executor()
+
+    with patch("posit_cli.connect.run.RSConnectExecutor", return_value=executor), patch(
+        "posit_cli.connect.run._build_bundle", return_value=io.BytesIO(b"bundle")
+    ) as build_bundle, patch(
+        "posit_cli.connect.run._content_response",
+        return_value=_app_response(b"hello from Connect\n"),
+    ):
+        result = runner.invoke(cli, ["connect", "run", str(project), "--", "one"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "hello from Connect\n"
+    build_bundle.assert_called_once_with(project, ("one",), None)
+
+
 def test_run_detach_prints_content_url_and_keeps_content(runner, tmp_path):
     script = tmp_path / "hello.py"
     script.write_text("print('hello')\n", encoding="utf-8")
@@ -133,6 +152,29 @@ def test_run_rejects_unsupported_files(runner, tmp_path):
     assert "PATH must be a Python or R file ending in .py or .R" in result.output
 
 
+def test_run_rejects_directory_without_entrypoint(runner, tmp_path):
+    project = tmp_path / "hello-world"
+    project.mkdir()
+    (project / "README.md").write_text("hello\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["connect", "run", str(project)])
+
+    assert result.exit_code != 0
+    assert "PATH directory must contain a runnable Python or R source file" in result.output
+
+
+def test_run_rejects_directory_with_ambiguous_entrypoints(runner, tmp_path):
+    project = tmp_path / "hello-world"
+    project.mkdir()
+    (project / "first.py").write_text("print('first')\n", encoding="utf-8")
+    (project / "second.py").write_text("print('second')\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["connect", "run", str(project)])
+
+    assert result.exit_code != 0
+    assert "PATH directory must contain one runnable source file" in result.output
+
+
 def test_wrapper_uses_json_encoded_program_arguments():
     source = _wrapper_source(("Ada Lovelace", 'quote "this"'))
 
@@ -140,6 +182,105 @@ def test_wrapper_uses_json_encoded_program_arguments():
     assert "from flask" not in source
     assert "def app(_environ, start_response):" in source
     assert "subprocess.run(" in source
+
+
+def test_build_bundle_preserves_directory_files_and_uses_app_entrypoint(tmp_path):
+    project = tmp_path / "hello-world"
+    project.mkdir()
+    (project / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    (project / "data.txt").write_text("fixture\n", encoding="utf-8")
+    (project / "lib").mkdir()
+    (project / "lib" / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    observed = {}
+
+    def fake_make_api_bundle(directory, entrypoint, app_mode, environment, extra_files, excludes):
+        root = Path(directory)
+        observed["files"] = sorted(
+            path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()
+        )
+        observed["wrapper"] = (root / "runner.py").read_text(encoding="utf-8")
+        observed["requirements"] = (root / "requirements.txt").read_text(encoding="utf-8")
+        observed["entrypoint"] = entrypoint
+        observed["app_mode"] = app_mode
+        observed["environment"] = environment
+        observed["extra_files"] = extra_files
+        observed["excludes"] = excludes
+        return io.BytesIO(b"bundle")
+
+    with patch(
+        "posit_cli.connect.run.Environment.create_python_environment",
+        return_value="environment",
+    ), patch("posit_cli.connect.run.make_api_bundle", side_effect=fake_make_api_bundle):
+        bundle = _build_bundle(project, ("arg",), "python3.12")
+
+    assert bundle.read() == b"bundle"
+    assert observed["files"] == [
+        "app.py",
+        "data.txt",
+        "lib/helper.py",
+        "pyproject.toml",
+        "requirements.txt",
+        "runner.py",
+    ]
+    assert 'PROGRAM = "app.py"' in observed["wrapper"]
+    assert 'PROGRAM_ARGS = ["arg"]' in observed["wrapper"]
+    assert observed["entrypoint"] == "runner:app"
+    assert observed["app_mode"] is AppModes.PYTHON_API
+    assert observed["environment"] == "environment"
+    assert observed["extra_files"] == []
+    assert observed["excludes"] == []
+
+
+def test_build_r_bundle_accepts_directory(tmp_path):
+    project = tmp_path / "hello-world"
+    project.mkdir()
+    (project / "app.R").write_text('cat("hello\\n")\n', encoding="utf-8")
+    observed = {}
+
+    def fake_make_api_bundle(
+        directory,
+        entrypoint,
+        app_mode,
+        environment,
+        extra_files,
+        excludes,
+        r_environment,
+    ):
+        root = Path(directory)
+        observed["files"] = sorted(
+            path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()
+        )
+        observed["wrapper"] = (root / "runner.py").read_text(encoding="utf-8")
+        observed["requirements"] = (root / "requirements.txt").read_text(encoding="utf-8")
+        observed["entrypoint"] = entrypoint
+        observed["app_mode"] = app_mode
+        observed["environment"] = environment
+        observed["extra_files"] = extra_files
+        observed["excludes"] = excludes
+        observed["r_environment"] = r_environment
+        return io.BytesIO(b"bundle")
+
+    with patch(
+        "posit_cli.connect.run.Environment.create_python_environment",
+        return_value="environment",
+    ), patch("posit_cli.connect.run.make_api_bundle", side_effect=fake_make_api_bundle):
+        bundle = _build_bundle(project, (), "r4.5")
+
+    assert bundle.read() == b"bundle"
+    assert observed["files"] == [
+        "app.R",
+        "pyproject.toml",
+        "requirements.txt",
+        "runner.py",
+    ]
+    assert 'PROGRAM = "app.R"' in observed["wrapper"]
+    assert observed["requirements"] == "rpy2\n"
+    assert observed["entrypoint"] == "runner:app"
+    assert observed["app_mode"] is AppModes.PYTHON_API
+    assert observed["environment"] == "environment"
+    assert observed["extra_files"] == []
+    assert observed["excludes"] == []
+    assert observed["r_environment"].r_version == "4.5"
 
 
 def test_r_wrapper_uses_rpy2_and_encoded_program_arguments():

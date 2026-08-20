@@ -7,6 +7,7 @@ $ posit connect login https://connect.example.com             # OAuth, tokens in
 $ posit connect api v1/user -q .username                      # gh-api-style raw request
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
 $ posit connect run hello.py                                  # run a Python program
+$ posit connect run ./hello                                   # run a directory project
 $ posit connect run hello.R                                   # run an R program
 ```
 
@@ -65,14 +66,19 @@ That's it — from here, explore `posit connect --help` for the full command set
 
 ## `posit connect run`
 
-The initial proof of concept accepts one Python or R source file and runs it
-through Connect's existing content APIs. Python uses a zero-dependency WSGI
-adapter; R uses a temporary Python API backed by
+The initial proof of concept accepts one Python or R source file, or a directory
+containing a runnable source file, and runs it through Connect's existing content
+APIs. Directory contents are bundled as-is. The command selects
+`__main__.py`, `main.py`, `app.py`, `main.R`, or `app.R` automatically; a
+directory with exactly one Python or R source file may use any filename.
+Python uses a zero-dependency WSGI adapter; R uses a temporary Python API backed by
 [rpy2](https://rpy2.github.io/). Both are deployed, invoked once, printed, and
 removed:
 
 ```console
 $ posit connect run hello.py
+hello from Connect
+$ posit connect run ./hello
 hello from Connect
 $ posit connect run hello.R
 Hello, world!

@@ -22,9 +22,10 @@ which has two halves:
 - **`posit connect api <path>`** — a `gh api`-style raw REST client for the
   Connect API. This is your primary tool for anything that isn't a deploy: reading
   and writing content, users, groups, tags, environments, audit logs, etc.
-- **`posit connect run <file>`** — execute one Python or R source file through a
-  temporary Connect API. The compatibility implementation supports optional
-  runtime selection, script arguments, and `--detach`.
+- **`posit connect run <path>`** — execute one Python or R source file, or a
+  directory containing a runnable source file, through a temporary Connect API.
+  The compatibility implementation supports optional runtime selection, script
+  arguments, and `--detach`.
 - **The full `rsconnect` command set** (`login`, `deploy`, `content`, `system`,
   `add`, `list`, ...) is mounted under `posit connect`, so those come for free and
   track [rsconnect-python](https://github.com/posit-dev/rsconnect-python) upstream.
@@ -74,15 +75,21 @@ commands spell this `-i/--insecure`), `-c/--cacert <file>`.
 
 ## `posit connect run`
 
-The initial compatibility client accepts one Python or R source file and waits
-for its temporary API invocation to finish:
+The initial compatibility client accepts one Python or R source file, or a
+directory containing a runnable source file, and waits for its temporary API
+invocation to finish:
 
 ```console
 posit connect run hello.py
+posit connect run ./hello
 posit connect run hello.py -- --name Ada
 posit connect run hello.py --runtime python3.12 --detach
 posit connect run hello.R --runtime r4.5
 ```
+
+For directory inputs, `__main__.py`, `main.py`, `app.py`, `main.R`, and `app.R`
+are recognized automatically. A directory with exactly one Python or R source
+file may use any filename. Directory contents are included in the bundle.
 
 It creates content with `POST /v1/content`, uploads either a zero-dependency
 Python WSGI API bundle or a Python API bundle that runs R through `rpy2` with
@@ -92,8 +99,8 @@ its R runtime metadata to
 output, and deletes the temporary content. `--detach` leaves the deployed
 content in place and prints its URL. R programs are submitted as Python API
 content using `rpy2`; the Connect administrator must enable
-`[Python] Flag = rpy2-cffi-mode-auto`. Directories, native batch jobs, resource
-overrides, and artifact pulling are not implemented yet.
+`[Python] Flag = rpy2-cffi-mode-auto`. Native batch jobs, resource overrides, and
+artifact pulling are not implemented yet.
 
 ## `posit connect api` — the raw REST client
 

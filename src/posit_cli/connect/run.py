@@ -23,13 +23,18 @@ from rsconnect.models import AppModes
 _RPY2_REQUIREMENT = "rpy2"
 _PYTHON_PROGRAM_FILENAME = "__posit_connect_run_program.py"
 _R_PROGRAM_FILENAME = "__posit_connect_run_program.R"
+_RUNNER_FILENAME = "runner.py"
 _RUNNER_ENTRYPOINT = "runner:app"
+_DIRECTORY_RUNNER_FILENAME = "__posit_connect_run_runner.py"
 _PYTHON_PROJECT_METADATA = """\
 [project]
 name = "posit-connect-run"
 version = "0.0.0"
 requires-python = ">=3.8"
 """
+_PYTHON_ENTRYPOINT_NAMES = {"__main__.py", "main.py", "app.py"}
+_R_ENTRYPOINT_NAMES = {"main.r", "app.r"}
+_SUPPORTED_SOURCE_SUFFIXES = {".py", ".r"}
 
 ProgramArguments = Tuple[str, ...]
 
@@ -167,15 +172,19 @@ def _r_manifest_version(runtime: Optional[str]) -> str:
     return _r_runtime_version(runtime) or _local_r_runtime_version()
 
 
-def _wrapper_source(program_args: ProgramArguments) -> str:
+def _wrapper_source(
+    program_args: ProgramArguments,
+    program: str = _PYTHON_PROGRAM_FILENAME,
+) -> str:
     """Create the small WSGI adapter used by the legacy content API."""
     encoded_args = json.dumps(list(program_args))
+    encoded_program = json.dumps(program)
     return f"""\
 import os
 import subprocess
 import sys
 
-PROGRAM = "{_PYTHON_PROGRAM_FILENAME}"
+PROGRAM = {encoded_program}
 PROGRAM_ARGS = {encoded_args}
 
 
@@ -200,14 +209,18 @@ def app(_environ, start_response):
 """
 
 
-def _rpy2_wrapper_source(program_args: ProgramArguments) -> str:
+def _rpy2_wrapper_source(
+    program_args: ProgramArguments,
+    program: str = _R_PROGRAM_FILENAME,
+) -> str:
     """Create the WSGI adapter that evaluates the R program through rpy2."""
     encoded_args = json.dumps(list(program_args))
+    encoded_program = json.dumps(program)
     return f'''\
 import contextlib
 import io
 
-PROGRAM = "{_R_PROGRAM_FILENAME}"
+PROGRAM = {encoded_program}
 PROGRAM_ARGS = {encoded_args}
 
 
@@ -261,6 +274,89 @@ def app(_environ, start_response):
 '''
 
 
+def _runtime_language(runtime: Optional[str]) -> Optional[str]:
+    if runtime is None:
+        return None
+    if runtime.startswith("python"):
+        _python_runtime_version(runtime)
+        return "python"
+    if runtime.lower().startswith("r"):
+        _r_runtime_version(runtime)
+        return "r"
+    raise click.BadParameter(
+        "runtime must be a Python or R runtime such as 'python3.12' or 'r4.5'",
+        param_hint="--runtime",
+    )
+
+
+def _directory_entrypoint(path: Path, runtime: Optional[str]) -> Path:
+    language = _runtime_language(runtime)
+    suffixes = {".py", ".r"} if language is None else {".py" if language == "python" else ".r"}
+    candidates = sorted(
+        (
+            candidate
+            for candidate in path.rglob("*")
+            if candidate.is_file() and candidate.suffix.lower() in suffixes
+        ),
+        key=lambda candidate: candidate.as_posix(),
+    )
+    if not candidates:
+        raise click.BadParameter(
+            "PATH directory must contain a runnable Python or R source file.",
+            param_hint="PATH",
+        )
+
+    entrypoint_names = _PYTHON_ENTRYPOINT_NAMES | _R_ENTRYPOINT_NAMES
+    preferred = [
+        candidate for candidate in candidates if candidate.name.lower() in entrypoint_names
+    ]
+    if len(preferred) == 1:
+        return preferred[0]
+    if len(preferred) > 1:
+        raise click.BadParameter(
+            "PATH directory contains multiple possible entrypoints; use --runtime "
+            "or leave only one of __main__.py, main.py, app.py, main.R, or app.R.",
+            param_hint="PATH",
+        )
+    if len(candidates) == 1:
+        return candidates[0]
+
+    raise click.BadParameter(
+        "PATH directory must contain one runnable source file or a conventional "
+        "entrypoint named __main__.py, main.py, app.py, main.R, or app.R.",
+        param_hint="PATH",
+    )
+
+
+def _write_bundle_support_files(
+    root: Path,
+    wrapper_source: str,
+    requirements: str,
+    runner_filename: str = _RUNNER_FILENAME,
+) -> None:
+    (root / runner_filename).write_text(wrapper_source, encoding="utf-8")
+    pyproject = root / "pyproject.toml"
+    if not pyproject.exists():
+        pyproject.write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
+
+    requirements_file = root / "requirements.txt"
+    if not requirements_file.exists():
+        requirements_file.write_text(requirements, encoding="utf-8")
+    elif requirements:
+        existing = requirements_file.read_text(encoding="utf-8")
+        additions = [
+            line
+            for line in requirements.splitlines()
+            if line and line not in existing.splitlines()
+        ]
+        if additions:
+            separator = "" if existing.endswith("\n") else "\n"
+            requirements_file.write_text(
+                existing + separator + "\n".join(additions) + "\n",
+                encoding="utf-8",
+            )
+
+
 def _write_bundle_files(
     root: Path,
     source_path: Path,
@@ -269,15 +365,35 @@ def _write_bundle_files(
     requirements: str,
 ) -> None:
     (root / program_filename).write_bytes(source_path.read_bytes())
-    (root / "runner.py").write_text(wrapper_source, encoding="utf-8")
-    (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
-    (root / "requirements.txt").write_text(requirements, encoding="utf-8")
+    _write_bundle_support_files(root, wrapper_source, requirements)
+
+
+def _copy_program_files(
+    root: Path,
+    path: Path,
+    program_filename: str,
+    runtime: Optional[str],
+) -> str:
+    if not path.is_dir():
+        (root / program_filename).write_bytes(path.read_bytes())
+        return program_filename
+
+    program_path = _directory_entrypoint(path, runtime)
+    shutil.copytree(path, root, dirs_exist_ok=True)
+    return program_path.relative_to(path).as_posix()
+
+
+def _directory_runner_filename(root: Path) -> str:
+    if not (root / _RUNNER_FILENAME).exists():
+        return _RUNNER_FILENAME
+    return _DIRECTORY_RUNNER_FILENAME
 
 
 def _make_api_bundle(
     directory: str,
     environment: object,
     r_environment: Optional[object] = None,
+    entrypoint: str = _RUNNER_ENTRYPOINT,
 ) -> BinaryIO:
     bundle_options = {
         "extra_files": [],
@@ -288,7 +404,7 @@ def _make_api_bundle(
 
     return make_api_bundle(
         directory,
-        _RUNNER_ENTRYPOINT,
+        entrypoint,
         AppModes.PYTHON_API,
         environment,
         **bundle_options,
@@ -303,19 +419,45 @@ def _build_python_bundle(
     """Build a normal Python API bundle containing the program and adapter."""
     with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
         root = Path(directory)
-        _write_bundle_files(
-            root,
-            path,
-            _PYTHON_PROGRAM_FILENAME,
-            _wrapper_source(program_args),
-            "",
-        )
+        runner_filename = _RUNNER_FILENAME
+        if path.is_dir():
+            program = _copy_program_files(root, path, _PYTHON_PROGRAM_FILENAME, runtime)
+            runner_filename = _directory_runner_filename(root)
+            requirements_file = (
+                "pyproject.toml"
+                if (root / "pyproject.toml").is_file()
+                and not (root / "requirements.txt").is_file()
+                else "requirements.txt"
+            )
+            _write_bundle_support_files(
+                root,
+                _wrapper_source(program_args, program),
+                "",
+                runner_filename,
+            )
+        else:
+            requirements_file = "requirements.txt"
+            _write_bundle_files(
+                root,
+                path,
+                _PYTHON_PROGRAM_FILENAME,
+                _wrapper_source(program_args),
+                "",
+            )
 
-        environment = Environment.create_python_environment(
-            directory,
-            override_python_version=_python_runtime_version(runtime),
-        )
-        return _make_api_bundle(directory, environment)
+        if requirements_file == "pyproject.toml":
+            environment = Environment.create_python_environment(
+                directory,
+                requirements_file=requirements_file,
+                override_python_version=_python_runtime_version(runtime),
+            )
+        else:
+            environment = Environment.create_python_environment(
+                directory,
+                override_python_version=_python_runtime_version(runtime),
+            )
+        entrypoint = f"{Path(runner_filename).stem}:app"
+        return _make_api_bundle(directory, environment, entrypoint=entrypoint)
 
 
 def _build_r_bundle(
@@ -326,21 +468,34 @@ def _build_r_bundle(
     """Build a Python API bundle that runs the R program through rpy2."""
     with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
         root = Path(directory)
-        _write_bundle_files(
-            root,
-            path,
-            _R_PROGRAM_FILENAME,
-            _rpy2_wrapper_source(program_args),
-            f"{_RPY2_REQUIREMENT}\n",
-        )
+        runner_filename = _RUNNER_FILENAME
+        if path.is_dir():
+            program = _copy_program_files(root, path, _R_PROGRAM_FILENAME, runtime)
+            runner_filename = _directory_runner_filename(root)
+            _write_bundle_support_files(
+                root,
+                _rpy2_wrapper_source(program_args, program),
+                f"{_RPY2_REQUIREMENT}\n",
+                runner_filename,
+            )
+        else:
+            _write_bundle_files(
+                root,
+                path,
+                _R_PROGRAM_FILENAME,
+                _rpy2_wrapper_source(program_args),
+                f"{_RPY2_REQUIREMENT}\n",
+            )
 
         environment = Environment.create_python_environment(directory)
         r_environment = REnvironment(r_version=_r_manifest_version(runtime), packages={})
-        return _make_api_bundle(directory, environment, r_environment)
+        entrypoint = f"{Path(runner_filename).stem}:app"
+        return _make_api_bundle(directory, environment, r_environment, entrypoint)
 
 
 def _build_bundle(path: Path, program_args: ProgramArguments, runtime: Optional[str]) -> BinaryIO:
-    if path.suffix.lower() == ".r":
+    program_path = path if path.is_file() else _directory_entrypoint(path, runtime)
+    if program_path.suffix.lower() == ".r":
         return _build_r_bundle(path, program_args, runtime)
     return _build_python_bundle(path, program_args, runtime)
 
@@ -458,8 +613,12 @@ def _cleanup_content(
 
 
 def _validate_run_options(path: Path, runtime: Optional[str]) -> None:
+    if path.is_dir():
+        _directory_entrypoint(path, runtime)
+        return
+
     suffix = path.suffix.lower()
-    if suffix not in {".py", ".r"}:
+    if suffix not in _SUPPORTED_SOURCE_SUFFIXES:
         raise click.BadParameter(
             "PATH must be a Python or R file ending in .py or .R",
             param_hint="PATH",
@@ -534,7 +693,13 @@ def _execute_run(request: _RunRequest, dependencies: _RunDependencies) -> None:
 )
 @click.argument(
     "path",
-    type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path),
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+        path_type=Path,
+    ),
 )
 @click.argument("program_args", nargs=-1, type=click.UNPROCESSED)
 @click.option(
@@ -595,8 +760,10 @@ def run(
 ) -> None:
     """Run PATH as a Python or R program using Connect's existing content APIs.
 
-    PATH must be a single ``.py`` or ``.R`` source file. Arguments after ``--``
-    are passed to the submitted program.
+    PATH may be a single ``.py`` or ``.R`` source file, or a directory containing
+    one runnable source file. Directory entrypoints named ``__main__.py``,
+    ``main.py``, ``app.py``, ``main.R``, or ``app.R`` are selected automatically.
+    Arguments after ``--`` are passed to the submitted program.
     """
     _validate_run_options(path, runtime)
     request = _RunRequest(
