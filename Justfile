@@ -29,6 +29,10 @@ smoke:
 install: build
     uv tool install --force "$(ls -t dist/*.whl | head -1)"
 
+# Remove the installed standalone uv tool
+uninstall:
+    uv tool uninstall posit-cli
+
 # Print the version that a build gets from the current git state
 version:
     @uvx hatch version
