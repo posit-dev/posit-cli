@@ -86,12 +86,14 @@ posit connect run hello.R --runtime r4.5
 ```
 
 It creates content with `POST /v1/content`, uploads either a zero-dependency
-Python WSGI API bundle or an R Plumber API bundle with its Packrat dependency
-metadata to
+Python WSGI API bundle or a Python API bundle that runs R through `rpy2` with
+its R runtime metadata to
 `/v1/content/{guid}/bundles`, deploys it with
 `POST /v1/content/{guid}/deploy`, invokes the content URL, prints the captured
 output, and deletes the temporary content. `--detach` leaves the deployed
-content in place and prints its URL. Directories, native batch jobs, resource
+content in place and prints its URL. R programs are submitted as Python API
+content using `rpy2`; the Connect administrator must enable
+`[Python] Flag = rpy2-cffi-mode-auto`. Directories, native batch jobs, resource
 overrides, and artifact pulling are not implemented yet.
 
 ## `posit connect api` — the raw REST client

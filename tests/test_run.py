@@ -14,7 +14,7 @@ from posit_cli.__main__ import cli
 from posit_cli.connect.run import (
     _build_bundle,
     _build_r_bundle,
-    _r_wrapper_source,
+    _rpy2_wrapper_source,
     _wrapper_source,
 )
 from rsconnect.models import AppModes
@@ -152,13 +152,16 @@ def test_wrapper_uses_json_encoded_program_arguments():
     assert "subprocess.run(" in source
 
 
-def test_r_wrapper_uses_rscript_and_encoded_program_arguments():
-    source = _r_wrapper_source(("Ada Lovelace", 'quote "this"'))
+def test_r_wrapper_uses_rpy2_and_encoded_program_arguments():
+    source = _rpy2_wrapper_source(("Ada Lovelace", 'quote "this"'))
 
-    assert 'PROGRAM_ARGS <- c("Ada Lovelace", "quote \\"this\\"")' in source
-    assert 'file.path(R.home("bin"), "Rscript")' in source
-    assert "plumber::serializer_text()" in source
-    assert "#* @get /" in source
+    assert 'PROGRAM_ARGS = ["Ada Lovelace", "quote \\"this\\""]' in source
+    assert "import rpy2.robjects as robjects" in source
+    assert "sys.source(basename(path), envir = execution_env)" in source
+    assert "commandArgs" in source
+    assert "logging.disable(logging.CRITICAL)" in source
+    assert "logging.disable(previous_logging_disable)" in source
+    assert "plumber" not in source
 
 
 def test_build_bundle_uses_standard_python_api_manifest(tmp_path):
@@ -195,7 +198,7 @@ def test_build_bundle_uses_standard_python_api_manifest(tmp_path):
     assert "from flask" not in observed["wrapper"]
 
 
-def test_build_r_bundle_uses_plumber_manifest(tmp_path):
+def test_build_r_bundle_uses_rpy2_python_manifest(tmp_path):
     script = tmp_path / "hello.R"
     script.write_text('cat("hello from R\\n")\n', encoding="utf-8")
 
@@ -205,14 +208,21 @@ def test_build_r_bundle_uses_plumber_manifest(tmp_path):
         assert sorted(archive.getnames()) == [
             "__posit_connect_run_program.R",
             "manifest.json",
-            "plumber.R",
+            "pyproject.toml",
+            "requirements.txt",
+            "runner.py",
         ]
-        assert manifest["metadata"]["appmode"] == "api"
+        assert manifest["metadata"]["appmode"] == "python-api"
+        assert manifest["metadata"]["entrypoint"] == "runner:app"
         assert manifest["platform"] == "4.5"
-        assert manifest["packages"]["plumber"]["Source"] == "CRAN"
-        assert manifest["packages"]["plumber"]["description"]["Version"] == "1.3.3"
-        assert "httpuv" in manifest["packages"]["plumber"]["description"]["Imports"]
-        assert 'PROGRAM_ARGS <- c("arg")' in archive.extractfile("plumber.R").read().decode()
+        assert manifest["packages"] == {}
+        assert manifest["environment"]["python"]["requires"] == ">=3.8"
+        assert (
+            archive.extractfile("pyproject.toml").read().decode()
+            == '[project]\nname = "posit-connect-run"\nversion = "0.0.0"\nrequires-python = ">=3.8"\n'
+        )
+        assert archive.extractfile("requirements.txt").read().decode() == "rpy2\n"
+        assert 'PROGRAM_ARGS = ["arg"]' in archive.extractfile("runner.py").read().decode()
 
 
 def test_build_r_bundle_defaults_to_local_r_version(tmp_path):

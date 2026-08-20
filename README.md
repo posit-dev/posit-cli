@@ -67,8 +67,9 @@ That's it — from here, explore `posit connect --help` for the full command set
 
 The initial proof of concept accepts one Python or R source file and runs it
 through Connect's existing content APIs. Python uses a zero-dependency WSGI
-adapter; R uses a temporary Plumber API. Both are deployed, invoked once,
-printed, and removed:
+adapter; R uses a temporary Python API backed by
+[rpy2](https://rpy2.github.io/). Both are deployed, invoked once, printed, and
+removed:
 
 ```console
 $ posit connect run hello.py
@@ -87,8 +88,9 @@ https://connect.example.com/content/...
 
 This compatibility path supports only the `standard` profile. R programs use
 the local R major/minor version by default; `--runtime r4.5` can override the
-version constraint. The adapters are deliberately temporary until Connect
-exposes a native execution API.
+version constraint. The Connect administrator must enable
+`[Python] Flag = rpy2-cffi-mode-auto` for rpy2 content. The adapters are
+deliberately temporary until Connect exposes a native execution API.
 
 ## Authentication
 

@@ -2,102 +2,30 @@
 
 from __future__ import annotations
 
-import io
 import json
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Optional, Tuple
+from typing import Any, BinaryIO, Optional, Tuple
 
 import click
 from rsconnect.api import RSConnectException, RSConnectExecutor
-from rsconnect.bundle import buffer_checksum, make_api_bundle
+from rsconnect.bundle import make_api_bundle
 from rsconnect.environment import Environment
+from rsconnect.environment_r import REnvironment
 from rsconnect.http_support import HTTPResponse, HTTPServer
 from rsconnect.models import AppModes
 
 
-_R_PACKAGE_REPOSITORY = "https://cran.rstudio.com/"
-
-# Connect's legacy R builder converts manifest packages into a Packrat lockfile
-# before launching Plumber. Keep this small dependency closure in the bundle
-# until the native run API can accept an execution artifact directly.
-_R_PACKAGE_SPECS = {
-    "cli": ("3.6.6", {"Depends": "R (>= 3.4)", "Imports": "utils"}),
-    "crayon": ("1.5.3", {"Imports": "grDevices, methods, utils"}),
-    "curl": ("7.1.0", {"Depends": "R (>= 3.0.0)"}),
-    "fastmap": ("1.2.0", {}),
-    "httpuv": (
-        "1.6.17",
-        {
-            "Depends": "R (>= 2.15.1)",
-            "Imports": "later (>= 0.8.0), promises, R6, Rcpp (>= 1.0.7), utils",
-            "LinkingTo": "later, Rcpp",
-        },
-    ),
-    "jsonlite": ("2.0.0", {"Imports": "methods"}),
-    "later": (
-        "1.4.8",
-        {"Imports": "Rcpp (>= 1.0.10), rlang", "LinkingTo": "Rcpp"},
-    ),
-    "lifecycle": (
-        "1.0.5",
-        {"Depends": "R (>= 3.6)", "Imports": "cli (>= 3.4.0), rlang (>= 1.1.0)"},
-    ),
-    "magrittr": ("2.0.5", {"Depends": "R (>= 3.4.0)"}),
-    "mime": ("0.13", {"Imports": "tools"}),
-    "otel": ("0.2.0", {"Depends": "R (>= 3.6.0)"}),
-    "plumber": (
-        "1.3.3",
-        {
-            "Depends": "R (>= 3.0.0)",
-            "Imports": (
-                "crayon, httpuv (>= 1.5.5), jsonlite (>= 0.9.16), "
-                "lifecycle (>= 1.0.0), magrittr, mime, promises (>= 1.1.0), "
-                "R6 (>= 2.0.0), rlang (>= 1.0.0), sodium, stringi (>= 0.3.0), "
-                "swagger (>= 3.33.0), webutils (>= 1.1)"
-            ),
-        },
-    ),
-    "promises": (
-        "1.5.0",
-        {
-            "Depends": "R (>= 4.1.0)",
-            "Imports": (
-                "fastmap (>= 1.1.0), later, lifecycle, magrittr (>= 1.5), "
-                "otel (>= 0.2.0), R6, rlang"
-            ),
-        },
-    ),
-    "R6": ("2.6.1", {"Depends": "R (>= 3.6)"}),
-    "Rcpp": ("1.1.2", {"Depends": "R (>= 3.5.0)", "Imports": "methods, utils"}),
-    "rlang": ("1.3.0", {"Depends": "R (>= 4.0.0)", "Imports": "utils"}),
-    "sodium": ("1.4.0", {}),
-    "stringi": (
-        "1.8.7",
-        {"Depends": "R (>= 3.4)", "Imports": "tools, utils, stats"},
-    ),
-    "swagger": ("5.32.1", {}),
-    "webutils": ("1.2.3", {"Imports": "curl (>= 2.5), jsonlite"}),
-}
-
-
-def _r_package_manifest() -> Dict[str, Dict[str, Any]]:
-    return {
-        name: {
-            "Source": "CRAN",
-            "Repository": _R_PACKAGE_REPOSITORY,
-            "description": {
-                "Package": name,
-                "Version": version,
-                **description,
-            },
-        }
-        for name, (version, description) in _R_PACKAGE_SPECS.items()
-    }
+_RPY2_REQUIREMENT = "rpy2"
+_PYTHON_PROJECT_METADATA = """\
+[project]
+name = "posit-connect-run"
+version = "0.0.0"
+requires-python = ">=3.8"
+"""
 
 
 def _python_runtime_version(runtime: Optional[str]) -> Optional[str]:
@@ -204,44 +132,65 @@ def app(_environ, start_response):
 """
 
 
-def _r_string_vector(values: Tuple[str, ...]) -> str:
-    if not values:
-        return "character()"
-    return "c(" + ", ".join(json.dumps(value) for value in values) + ")"
+def _rpy2_wrapper_source(program_args: Tuple[str, ...]) -> str:
+    """Create the WSGI adapter that evaluates the R program through rpy2."""
+    encoded_args = json.dumps(list(program_args))
+    return f'''\
+import contextlib
+import io
+
+PROGRAM = "__posit_connect_run_program.R"
+PROGRAM_ARGS = {encoded_args}
 
 
-def _r_wrapper_source(program_args: Tuple[str, ...]) -> str:
-    """Create the small Plumber adapter used by the legacy content API."""
-    encoded_args = _r_string_vector(program_args)
-    return f"""\
-PROGRAM <- "__posit_connect_run_program.R"
-PROGRAM_ARGS <- {encoded_args}
+def _run_program():
+    import logging
+
+    previous_logging_disable = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        import rpy2.robjects as robjects
+
+        run_file = robjects.r(
+            """
+            function(path, args) {{
+              execution_env <- new.env(parent = globalenv())
+              execution_env[["commandArgs"]] <- function(trailingOnly = FALSE) {{
+                if (trailingOnly) args else c("R", "--args", args)
+              }}
+              oldwd <- getwd()
+              on.exit(setwd(oldwd), add = TRUE)
+              setwd(dirname(path))
+              sys.source(basename(path), envir = execution_env)
+            }}
+            """
+        )
+        run_file(PROGRAM, robjects.StrVector(PROGRAM_ARGS))
+    finally:
+        logging.disable(previous_logging_disable)
 
 
-#* @get /
-run_program <- function(res) {{
-  res$serializer <- plumber::serializer_text()
-  output <- suppressWarnings(system2(
-    file.path(R.home("bin"), "Rscript"),
-    c("--vanilla", PROGRAM, PROGRAM_ARGS),
-    stdout = TRUE,
-    stderr = TRUE
-  ))
-  exit_code <- attr(output, "status", exact = TRUE)
-  if (is.null(exit_code)) exit_code <- 0L
-  if (length(output) == 0) output <- ""
-  if (exit_code != 0) res$status <- 500L
-  paste(output, collapse = "\\n")
-}}
-"""
+def app(_environ, start_response):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    status = "200 OK"
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            _run_program()
+        except Exception as error:
+            status = "500 Internal Server Error"
+            stderr.write(f"{{type(error).__name__}}: {{error}}\\n")
 
-
-def _add_bundle_file(archive: tarfile.TarFile, name: str, content: bytes) -> None:
-    info = tarfile.TarInfo(name=name)
-    info.mode = 0o644
-    info.mtime = 0
-    info.size = len(content)
-    archive.addfile(info, io.BytesIO(content))
+    output = (stdout.getvalue() + stderr.getvalue()).encode("utf-8", errors="replace")
+    start_response(
+        status,
+        [
+            ("Content-Type", "text/plain; charset=utf-8"),
+            ("Content-Length", str(len(output))),
+        ],
+    )
+    return [output]
+'''
 
 
 def _build_python_bundle(
@@ -254,6 +203,7 @@ def _build_python_bundle(
         root = Path(directory)
         (root / "__posit_connect_run_program.py").write_bytes(path.read_bytes())
         (root / "runner.py").write_text(_wrapper_source(program_args), encoding="utf-8")
+        (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
         (root / "requirements.txt").write_text("", encoding="utf-8")
 
         environment = Environment.create_python_environment(
@@ -271,40 +221,25 @@ def _build_python_bundle(
 
 
 def _build_r_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
-    """Build a minimal Plumber API bundle containing the R program and adapter."""
+    """Build a Python API bundle that runs the R program through rpy2."""
     with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
         root = Path(directory)
         (root / "__posit_connect_run_program.R").write_bytes(path.read_bytes())
-        (root / "plumber.R").write_text(_r_wrapper_source(program_args), encoding="utf-8")
+        (root / "runner.py").write_text(_rpy2_wrapper_source(program_args), encoding="utf-8")
+        (root / "pyproject.toml").write_text(_PYTHON_PROJECT_METADATA, encoding="utf-8")
+        (root / "requirements.txt").write_text(f"{_RPY2_REQUIREMENT}\n", encoding="utf-8")
 
-        program_bytes = (root / "__posit_connect_run_program.R").read_bytes()
-        wrapper_bytes = (root / "plumber.R").read_bytes()
-        manifest: Dict[str, Any] = {
-            "version": 1,
-            "locale": "en_US",
-            "metadata": {
-                "appmode": "api",
-                "primary_rmd": None,
-                "primary_html": None,
-                "content_category": None,
-                "has_parameters": False,
-            },
-            "files": {
-                "__posit_connect_run_program.R": {"checksum": buffer_checksum(program_bytes)},
-                "plumber.R": {"checksum": buffer_checksum(wrapper_bytes)},
-            },
-        }
-        manifest["platform"] = _r_manifest_version(runtime)
-        manifest["packages"] = _r_package_manifest()
-
-        manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
-        bundle = io.BytesIO()
-        with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
-            _add_bundle_file(archive, "manifest.json", manifest_bytes)
-            _add_bundle_file(archive, "__posit_connect_run_program.R", program_bytes)
-            _add_bundle_file(archive, "plumber.R", wrapper_bytes)
-        bundle.seek(0)
-        return bundle
+        environment = Environment.create_python_environment(directory)
+        r_environment = REnvironment(r_version=_r_manifest_version(runtime), packages={})
+        return make_api_bundle(
+            directory,
+            "runner:app",
+            AppModes.PYTHON_API,
+            environment,
+            extra_files=[],
+            excludes=[],
+            r_environment=r_environment,
+        )
 
 
 def _build_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
