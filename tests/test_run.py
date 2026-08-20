@@ -1,0 +1,228 @@
+"""Unit tests for the legacy-API `posit connect run` command."""
+
+import io
+import json
+import tarfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+from click.testing import CliRunner
+
+from posit_cli.__main__ import cli
+from posit_cli.connect.run import (
+    _build_bundle,
+    _build_r_bundle,
+    _r_wrapper_source,
+    _wrapper_source,
+)
+from rsconnect.models import AppModes
+
+
+@pytest.fixture
+def runner():
+    return CliRunner()
+
+
+def _app_response(body: bytes, status: int = 200):
+    return SimpleNamespace(response_body=body, status=status, exception=None)
+
+
+def _mock_executor():
+    executor = MagicMock()
+    client = executor.client
+    client.content_create.return_value = {
+        "guid": "content-123",
+        "content_url": "https://connect.example.com/content/content-123/",
+    }
+    client.upload_bundle.return_value = {"id": "bundle-123"}
+    client.content_deploy.return_value = {"task_id": "task-123"}
+    client.wait_for_task.return_value = ([], {"code": 0})
+    client.delete.return_value = None
+    executor.client = client
+    return executor
+
+
+def test_run_creates_deploys_invokes_and_deletes_temporary_content(runner, tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("print('hello from Connect')\n", encoding="utf-8")
+    executor = _mock_executor()
+    response = _app_response(b"hello from Connect\n")
+
+    with patch("posit_cli.connect.run.RSConnectExecutor", return_value=executor), patch(
+        "posit_cli.connect.run._build_bundle", return_value=io.BytesIO(b"bundle")
+    ) as build_bundle, patch(
+        "posit_cli.connect.run._content_response", return_value=response
+    ) as content_response:
+        result = runner.invoke(cli, ["connect", "run", str(script), "--", "one", "--two"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "hello from Connect\n"
+    build_bundle.assert_called_once_with(script, ("one", "--two"), None)
+    content_response.assert_called_once_with(
+        executor.client, "https://connect.example.com/content/content-123/"
+    )
+    executor.client.content_create.assert_called_once()
+    executor.client.upload_bundle.assert_called_once()
+    executor.client.content_deploy.assert_called_once_with("content-123", bundle_id="bundle-123")
+    executor.client.wait_for_task.assert_called_once_with(
+        "task-123",
+        log_callback=None,
+        raise_on_error=False,
+    )
+    executor.client.delete.assert_called_once_with("v1/content/content-123", decode_response=False)
+
+
+def test_run_detach_prints_content_url_and_keeps_content(runner, tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    executor = _mock_executor()
+
+    with patch("posit_cli.connect.run.RSConnectExecutor", return_value=executor), patch(
+        "posit_cli.connect.run._build_bundle", return_value=io.BytesIO(b"bundle")
+    ), patch("posit_cli.connect.run._content_response") as content_response:
+        result = runner.invoke(cli, ["connect", "run", str(script), "--detach"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "https://connect.example.com/content/content-123/\n"
+    content_response.assert_not_called()
+
+
+def test_run_returns_nonzero_for_content_failure_and_still_deletes(runner, tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    executor = _mock_executor()
+
+    with patch("posit_cli.connect.run.RSConnectExecutor", return_value=executor), patch(
+        "posit_cli.connect.run._build_bundle", return_value=io.BytesIO(b"bundle")
+    ), patch(
+        "posit_cli.connect.run._content_response",
+        return_value=_app_response(b"failed\n", status=500),
+    ):
+        result = runner.invoke(cli, ["connect", "run", str(script)])
+
+    assert result.exit_code == 1
+    assert result.output == "failed\n"
+
+
+def test_run_accepts_r_scripts(runner, tmp_path):
+    script = tmp_path / "hello.R"
+    script.write_text('cat("hello from R\\n")\n', encoding="utf-8")
+    executor = _mock_executor()
+
+    with patch("posit_cli.connect.run.RSConnectExecutor", return_value=executor), patch(
+        "posit_cli.connect.run._build_bundle", return_value=io.BytesIO(b"bundle")
+    ) as build_bundle, patch(
+        "posit_cli.connect.run._content_response", return_value=_app_response(b"hello from R\n")
+    ):
+        result = runner.invoke(cli, ["connect", "run", str(script)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "hello from R\n"
+    build_bundle.assert_called_once_with(script, (), None)
+
+
+def test_run_rejects_unsupported_profile(runner, tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["connect", "run", str(script), "--profile", "large"])
+
+    assert result.exit_code != 0
+    assert "supports only the 'standard' profile" in result.output
+
+
+def test_run_rejects_unsupported_files(runner, tmp_path):
+    program = tmp_path / "hello.txt"
+    program.write_text("hello\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["connect", "run", str(program)])
+
+    assert result.exit_code != 0
+    assert "PATH must be a Python or R file ending in .py or .R" in result.output
+
+
+def test_wrapper_uses_json_encoded_program_arguments():
+    source = _wrapper_source(("Ada Lovelace", 'quote "this"'))
+
+    assert 'PROGRAM_ARGS = ["Ada Lovelace", "quote \\"this\\""]' in source
+    assert "from flask" not in source
+    assert "def app(_environ, start_response):" in source
+    assert "subprocess.run(" in source
+
+
+def test_r_wrapper_uses_rscript_and_encoded_program_arguments():
+    source = _r_wrapper_source(("Ada Lovelace", 'quote "this"'))
+
+    assert 'PROGRAM_ARGS <- c("Ada Lovelace", "quote \\"this\\"")' in source
+    assert 'file.path(R.home("bin"), "Rscript")' in source
+    assert "plumber::serializer_text()" in source
+    assert "#* @get /" in source
+
+
+def test_build_bundle_uses_standard_python_api_manifest(tmp_path):
+    script = tmp_path / "hello.py"
+    script.write_text("print('hello')\n", encoding="utf-8")
+    observed = {}
+
+    def fake_make_api_bundle(directory, entrypoint, app_mode, environment, extra_files, excludes):
+        root = Path(directory)
+        observed["files"] = sorted(path.name for path in root.iterdir())
+        observed["requirements"] = (root / "requirements.txt").read_text(encoding="utf-8")
+        observed["wrapper"] = (root / "runner.py").read_text(encoding="utf-8")
+        observed["directory"] = directory
+        observed["entrypoint"] = entrypoint
+        observed["app_mode"] = app_mode
+        observed["environment"] = environment
+        observed["extra_files"] = extra_files
+        observed["excludes"] = excludes
+        return io.BytesIO(b"bundle")
+
+    with patch(
+        "posit_cli.connect.run.Environment.create_python_environment",
+        return_value="environment",
+    ), patch("posit_cli.connect.run.make_api_bundle", side_effect=fake_make_api_bundle):
+        bundle = _build_bundle(script, ("arg",), "python3.12")
+
+    assert bundle.read() == b"bundle"
+    assert observed["entrypoint"] == "runner:app"
+    assert observed["app_mode"] is AppModes.PYTHON_API
+    assert observed["environment"] == "environment"
+    assert observed["extra_files"] == []
+    assert observed["excludes"] == []
+    assert observed["requirements"] == ""
+    assert "from flask" not in observed["wrapper"]
+
+
+def test_build_r_bundle_uses_plumber_manifest(tmp_path):
+    script = tmp_path / "hello.R"
+    script.write_text('cat("hello from R\\n")\n', encoding="utf-8")
+
+    bundle = _build_r_bundle(script, ("arg",), "r4.5")
+    with tarfile.open(fileobj=bundle, mode="r:gz") as archive:
+        manifest = json.load(archive.extractfile("manifest.json"))
+        assert sorted(archive.getnames()) == [
+            "__posit_connect_run_program.R",
+            "manifest.json",
+            "plumber.R",
+        ]
+        assert manifest["metadata"]["appmode"] == "api"
+        assert manifest["platform"] == "4.5"
+        assert manifest["packages"]["plumber"]["Source"] == "CRAN"
+        assert manifest["packages"]["plumber"]["description"]["Version"] == "1.3.3"
+        assert "httpuv" in manifest["packages"]["plumber"]["description"]["Imports"]
+        assert 'PROGRAM_ARGS <- c("arg")' in archive.extractfile("plumber.R").read().decode()
+
+
+def test_build_r_bundle_defaults_to_local_r_version(tmp_path):
+    script = tmp_path / "hello.R"
+    script.write_text('cat("hello from R\\n")\n', encoding="utf-8")
+
+    with patch("posit_cli.connect.run._local_r_runtime_version", return_value="4.5"):
+        bundle = _build_r_bundle(script, (), None)
+
+    with tarfile.open(fileobj=bundle, mode="r:gz") as archive:
+        manifest = json.load(archive.extractfile("manifest.json"))
+
+    assert manifest["platform"] == "4.5"

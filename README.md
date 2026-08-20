@@ -6,6 +6,8 @@ A friendly command-line interface for Posit products, in the spirit of [`gh`](ht
 $ posit connect login https://connect.example.com             # OAuth, tokens in your OS keyring
 $ posit connect api v1/user -q .username                      # gh-api-style raw request
 $ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
+$ posit connect run hello.py                                  # run a Python program
+$ posit connect run hello.R                                   # run an R program
 ```
 
 This project is in early-stage development and so far only supports Posit Connect's APIs.
@@ -60,6 +62,33 @@ $ posit connect deploy streamlit ./my-app
 ```
 
 That's it — from here, explore `posit connect --help` for the full command set.
+
+## `posit connect run`
+
+The initial proof of concept accepts one Python or R source file and runs it
+through Connect's existing content APIs. Python uses a zero-dependency WSGI
+adapter; R uses a temporary Plumber API. Both are deployed, invoked once,
+printed, and removed:
+
+```console
+$ posit connect run hello.py
+hello from Connect
+$ posit connect run hello.R
+Hello, world!
+```
+
+Arguments after `--` are passed to the program. Use `--detach` to deploy the
+temporary API and print its URL without invoking or removing it:
+
+```console
+$ posit connect run hello.py -- --name Ada
+https://connect.example.com/content/...
+```
+
+This compatibility path supports only the `standard` profile. R programs use
+the local R major/minor version by default; `--runtime r4.5` can override the
+version constraint. The adapters are deliberately temporary until Connect
+exposes a native execution API.
 
 ## Authentication
 

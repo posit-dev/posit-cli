@@ -1,0 +1,522 @@
+"""``posit connect run`` -- execute a Python or R program through Connect content."""
+
+from __future__ import annotations
+
+import io
+import json
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Any, BinaryIO, Dict, Optional, Tuple
+
+import click
+from rsconnect.api import RSConnectException, RSConnectExecutor
+from rsconnect.bundle import buffer_checksum, make_api_bundle
+from rsconnect.environment import Environment
+from rsconnect.http_support import HTTPResponse, HTTPServer
+from rsconnect.models import AppModes
+
+
+_R_PACKAGE_REPOSITORY = "https://cran.rstudio.com/"
+
+# Connect's legacy R builder converts manifest packages into a Packrat lockfile
+# before launching Plumber. Keep this small dependency closure in the bundle
+# until the native run API can accept an execution artifact directly.
+_R_PACKAGE_SPECS = {
+    "cli": ("3.6.6", {"Depends": "R (>= 3.4)", "Imports": "utils"}),
+    "crayon": ("1.5.3", {"Imports": "grDevices, methods, utils"}),
+    "curl": ("7.1.0", {"Depends": "R (>= 3.0.0)"}),
+    "fastmap": ("1.2.0", {}),
+    "httpuv": (
+        "1.6.17",
+        {
+            "Depends": "R (>= 2.15.1)",
+            "Imports": "later (>= 0.8.0), promises, R6, Rcpp (>= 1.0.7), utils",
+            "LinkingTo": "later, Rcpp",
+        },
+    ),
+    "jsonlite": ("2.0.0", {"Imports": "methods"}),
+    "later": (
+        "1.4.8",
+        {"Imports": "Rcpp (>= 1.0.10), rlang", "LinkingTo": "Rcpp"},
+    ),
+    "lifecycle": (
+        "1.0.5",
+        {"Depends": "R (>= 3.6)", "Imports": "cli (>= 3.4.0), rlang (>= 1.1.0)"},
+    ),
+    "magrittr": ("2.0.5", {"Depends": "R (>= 3.4.0)"}),
+    "mime": ("0.13", {"Imports": "tools"}),
+    "otel": ("0.2.0", {"Depends": "R (>= 3.6.0)"}),
+    "plumber": (
+        "1.3.3",
+        {
+            "Depends": "R (>= 3.0.0)",
+            "Imports": (
+                "crayon, httpuv (>= 1.5.5), jsonlite (>= 0.9.16), "
+                "lifecycle (>= 1.0.0), magrittr, mime, promises (>= 1.1.0), "
+                "R6 (>= 2.0.0), rlang (>= 1.0.0), sodium, stringi (>= 0.3.0), "
+                "swagger (>= 3.33.0), webutils (>= 1.1)"
+            ),
+        },
+    ),
+    "promises": (
+        "1.5.0",
+        {
+            "Depends": "R (>= 4.1.0)",
+            "Imports": (
+                "fastmap (>= 1.1.0), later, lifecycle, magrittr (>= 1.5), "
+                "otel (>= 0.2.0), R6, rlang"
+            ),
+        },
+    ),
+    "R6": ("2.6.1", {"Depends": "R (>= 3.6)"}),
+    "Rcpp": ("1.1.2", {"Depends": "R (>= 3.5.0)", "Imports": "methods, utils"}),
+    "rlang": ("1.3.0", {"Depends": "R (>= 4.0.0)", "Imports": "utils"}),
+    "sodium": ("1.4.0", {}),
+    "stringi": (
+        "1.8.7",
+        {"Depends": "R (>= 3.4)", "Imports": "tools, utils, stats"},
+    ),
+    "swagger": ("5.32.1", {}),
+    "webutils": ("1.2.3", {"Imports": "curl (>= 2.5), jsonlite"}),
+}
+
+
+def _r_package_manifest() -> Dict[str, Dict[str, Any]]:
+    return {
+        name: {
+            "Source": "CRAN",
+            "Repository": _R_PACKAGE_REPOSITORY,
+            "description": {
+                "Package": name,
+                "Version": version,
+                **description,
+            },
+        }
+        for name, (version, description) in _R_PACKAGE_SPECS.items()
+    }
+
+
+def _python_runtime_version(runtime: Optional[str]) -> Optional[str]:
+    """Translate ``python`` or ``pythonX.Y`` into a manifest version."""
+    if runtime is None or runtime == "python":
+        return None
+    if not runtime.startswith("python"):
+        raise click.BadParameter(
+            "runtime must be 'python' or a Python version such as 'python3.12'",
+            param_hint="--runtime",
+        )
+
+    version = runtime[len("python") :]
+    if not version or any(not (character.isdigit() or character == ".") for character in version):
+        raise click.BadParameter(
+            "runtime must be 'python' or a Python version such as 'python3.12'",
+            param_hint="--runtime",
+        )
+    return version
+
+
+def _r_runtime_version(runtime: Optional[str]) -> Optional[str]:
+    """Translate ``r`` or ``rX.Y`` into an R manifest version."""
+    if runtime is None or runtime.lower() == "r":
+        return None
+    if not runtime.lower().startswith("r"):
+        raise click.BadParameter(
+            "runtime must be 'r' or an R version such as 'r4.5'",
+            param_hint="--runtime",
+        )
+
+    version = runtime[1:]
+    if not version or any(not (character.isdigit() or character == ".") for character in version):
+        raise click.BadParameter(
+            "runtime must be 'r' or an R version such as 'r4.5'",
+            param_hint="--runtime",
+        )
+    return version
+
+
+def _local_r_runtime_version() -> str:
+    executable = shutil.which("Rscript")
+    if executable is None:
+        raise click.ClickException(
+            "Rscript is required to infer the local R version; pass --runtime rX.Y."
+        )
+
+    result = subprocess.run(
+        [
+            executable,
+            "--vanilla",
+            "-e",
+            "cat(paste(R.version$major, R.version$minor, sep = '.'))",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    version = result.stdout.strip()
+    if (
+        result.returncode != 0
+        or not version
+        or any(not (character.isdigit() or character == ".") for character in version)
+    ):
+        detail = result.stderr.strip() or "Rscript did not report a version"
+        raise click.ClickException(f"unable to determine the local R version: {detail}")
+    return version
+
+
+def _r_manifest_version(runtime: Optional[str]) -> str:
+    return _r_runtime_version(runtime) or _local_r_runtime_version()
+
+
+def _wrapper_source(program_args: Tuple[str, ...]) -> str:
+    """Create the small WSGI adapter used by the legacy content API."""
+    encoded_args = json.dumps(list(program_args))
+    return f"""\
+import os
+import subprocess
+import sys
+
+PROGRAM = "__posit_connect_run_program.py"
+PROGRAM_ARGS = {encoded_args}
+
+
+def app(_environ, start_response):
+    result = subprocess.run(
+        [sys.executable, PROGRAM, *PROGRAM_ARGS],
+        cwd=os.path.dirname(__file__),
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    output = (result.stdout + result.stderr).encode("utf-8")
+    status = "200 OK" if result.returncode == 0 else "500 Internal Server Error"
+    start_response(
+        status,
+        [
+            ("Content-Type", "text/plain; charset=utf-8"),
+            ("Content-Length", str(len(output))),
+        ],
+    )
+    return [output]
+"""
+
+
+def _r_string_vector(values: Tuple[str, ...]) -> str:
+    if not values:
+        return "character()"
+    return "c(" + ", ".join(json.dumps(value) for value in values) + ")"
+
+
+def _r_wrapper_source(program_args: Tuple[str, ...]) -> str:
+    """Create the small Plumber adapter used by the legacy content API."""
+    encoded_args = _r_string_vector(program_args)
+    return f"""\
+PROGRAM <- "__posit_connect_run_program.R"
+PROGRAM_ARGS <- {encoded_args}
+
+
+#* @get /
+run_program <- function(res) {{
+  res$serializer <- plumber::serializer_text()
+  output <- suppressWarnings(system2(
+    file.path(R.home("bin"), "Rscript"),
+    c("--vanilla", PROGRAM, PROGRAM_ARGS),
+    stdout = TRUE,
+    stderr = TRUE
+  ))
+  exit_code <- attr(output, "status", exact = TRUE)
+  if (is.null(exit_code)) exit_code <- 0L
+  if (length(output) == 0) output <- ""
+  if (exit_code != 0) res$status <- 500L
+  paste(output, collapse = "\\n")
+}}
+"""
+
+
+def _add_bundle_file(archive: tarfile.TarFile, name: str, content: bytes) -> None:
+    info = tarfile.TarInfo(name=name)
+    info.mode = 0o644
+    info.mtime = 0
+    info.size = len(content)
+    archive.addfile(info, io.BytesIO(content))
+
+
+def _build_python_bundle(
+    path: Path,
+    program_args: Tuple[str, ...],
+    runtime: Optional[str],
+) -> BinaryIO:
+    """Build a normal Python API bundle containing the program and adapter."""
+    with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
+        root = Path(directory)
+        (root / "__posit_connect_run_program.py").write_bytes(path.read_bytes())
+        (root / "runner.py").write_text(_wrapper_source(program_args), encoding="utf-8")
+        (root / "requirements.txt").write_text("", encoding="utf-8")
+
+        environment = Environment.create_python_environment(
+            directory,
+            override_python_version=_python_runtime_version(runtime),
+        )
+        return make_api_bundle(
+            directory,
+            "runner:app",
+            AppModes.PYTHON_API,
+            environment,
+            extra_files=[],
+            excludes=[],
+        )
+
+
+def _build_r_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
+    """Build a minimal Plumber API bundle containing the R program and adapter."""
+    with tempfile.TemporaryDirectory(prefix="posit-connect-run-") as directory:
+        root = Path(directory)
+        (root / "__posit_connect_run_program.R").write_bytes(path.read_bytes())
+        (root / "plumber.R").write_text(_r_wrapper_source(program_args), encoding="utf-8")
+
+        program_bytes = (root / "__posit_connect_run_program.R").read_bytes()
+        wrapper_bytes = (root / "plumber.R").read_bytes()
+        manifest: Dict[str, Any] = {
+            "version": 1,
+            "locale": "en_US",
+            "metadata": {
+                "appmode": "api",
+                "primary_rmd": None,
+                "primary_html": None,
+                "content_category": None,
+                "has_parameters": False,
+            },
+            "files": {
+                "__posit_connect_run_program.R": {"checksum": buffer_checksum(program_bytes)},
+                "plumber.R": {"checksum": buffer_checksum(wrapper_bytes)},
+            },
+        }
+        manifest["platform"] = _r_manifest_version(runtime)
+        manifest["packages"] = _r_package_manifest()
+
+        manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+        bundle = io.BytesIO()
+        with tarfile.open(fileobj=bundle, mode="w:gz") as archive:
+            _add_bundle_file(archive, "manifest.json", manifest_bytes)
+            _add_bundle_file(archive, "__posit_connect_run_program.R", program_bytes)
+            _add_bundle_file(archive, "plumber.R", wrapper_bytes)
+        bundle.seek(0)
+        return bundle
+
+
+def _build_bundle(path: Path, program_args: Tuple[str, ...], runtime: Optional[str]) -> BinaryIO:
+    if path.suffix.lower() == ".r":
+        return _build_r_bundle(path, program_args, runtime)
+    return _build_python_bundle(path, program_args, runtime)
+
+
+def _content_name(path: Path, job_name: Optional[str]) -> str:
+    if job_name:
+        return job_name
+    return f"posit-connect-run-{path.stem}-{uuid.uuid4().hex[:12]}"
+
+
+def _wait_for_deployment(client: Any, deployment: Any) -> None:
+    if not isinstance(deployment, dict):
+        raise click.ClickException("Connect returned an invalid deployment response.")
+
+    task_id = deployment.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        raise click.ClickException("Connect returned no deployment task ID.")
+
+    _, task = client.wait_for_task(task_id, log_callback=None, raise_on_error=False)
+    if not isinstance(task, dict):
+        raise click.ClickException("Connect returned an invalid deployment task.")
+
+    code = task.get("code", 0)
+    if code not in (None, 0):
+        detail = task.get("error") or f"deployment exited with status {code}"
+        raise click.ClickException(f"deployment failed: {detail}")
+
+
+def _content_response(client: Any, content_url: str) -> HTTPResponse:
+    """Invoke the deployed content URL with the same auth and TLS settings."""
+    app_server = HTTPServer(
+        content_url,
+        disable_tls_check=getattr(client, "_disable_tls_check", False),
+        ca_data=getattr(client, "_ca_data", None),
+        cookies=getattr(client, "_cookies", None),
+    )
+    app_server._headers.update(getattr(client, "_headers", {}))
+    response = app_server.get("", decode_response=False)
+    if not isinstance(response, HTTPResponse):
+        raise click.ClickException("Connect returned an invalid content response.")
+    return response
+
+
+def _response_text(response: HTTPResponse) -> str:
+    value = response.response_body
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
+def _emit_response(response: HTTPResponse) -> None:
+    text = _response_text(response)
+    if text:
+        click.echo(text, nl=not text.endswith("\n"))
+
+
+def _delete_content(client: Any, content_guid: str) -> None:
+    response = client.delete(f"v1/content/{content_guid}", decode_response=False)
+    if isinstance(response, HTTPResponse):
+        if response.exception:
+            raise RSConnectException(str(response.exception))
+        if not 200 <= response.status < 300:
+            raise RSConnectException(f"HTTP {response.status} {response.reason}".rstrip())
+
+
+@click.command(
+    "run",
+    short_help="Run a Python or R program through a temporary Connect API.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.argument(
+    "path",
+    type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path),
+)
+@click.argument("program_args", nargs=-1, type=click.UNPROCESSED)
+@click.option(
+    "--profile",
+    default="standard",
+    show_default=True,
+    help="Dispatch profile. The legacy compatibility path supports standard only.",
+)
+@click.option(
+    "--runtime",
+    default=None,
+    metavar="NAME",
+    help="Runtime, for example python3.12 or r4.5. Defaults to the server runtime.",
+)
+@click.option("--job-name", default=None, help="Optional name for the temporary content item.")
+@click.option(
+    "--detach",
+    is_flag=True,
+    help="Deploy the temporary API and print its URL without invoking or deleting it.",
+)
+# Credential selection mirrors `posit connect api`.
+@click.option("--name", "-n", "server_name", default=None, help="Nickname of a saved server.")
+@click.option(
+    "--server",
+    "-s",
+    default=None,
+    envvar="CONNECT_SERVER",
+    help="Connect server URL [env: CONNECT_SERVER].",
+)
+@click.option(
+    "--api-key",
+    "-k",
+    default=None,
+    envvar="CONNECT_API_KEY",
+    help="Connect API key [env: CONNECT_API_KEY].",
+)
+@click.option(
+    "--no-tls-verify",
+    "insecure",
+    is_flag=True,
+    default=False,
+    envvar="CONNECT_INSECURE",
+    help="Skip TLS certificate verification (still uses TLS) [env: CONNECT_INSECURE].",
+)
+@click.option(
+    "--cacert",
+    "-c",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    envvar="CONNECT_CA_CERTIFICATE",
+    help="Path to trusted TLS CA certificate.",
+)
+def run(
+    path: Path,
+    program_args: Tuple[str, ...],
+    profile: str,
+    runtime: Optional[str],
+    job_name: Optional[str],
+    detach: bool,
+    server_name: Optional[str],
+    server: Optional[str],
+    api_key: Optional[str],
+    insecure: bool,
+    cacert: Optional[str],
+) -> None:
+    """Run PATH as a Python or R program using Connect's existing content APIs.
+
+    PATH must be a single ``.py`` or ``.R`` source file. Arguments after ``--``
+    are passed to the submitted program.
+    """
+    suffix = path.suffix.lower()
+    if suffix not in {".py", ".r"}:
+        raise click.BadParameter(
+            "PATH must be a Python or R file ending in .py or .R",
+            param_hint="PATH",
+        )
+    if profile != "standard":
+        raise click.BadParameter(
+            "the legacy compatibility path supports only the 'standard' profile",
+            param_hint="--profile",
+        )
+    if suffix == ".py":
+        _python_runtime_version(runtime)
+    else:
+        _r_runtime_version(runtime)
+
+    executor: Optional[RSConnectExecutor] = None
+    content_guid: Optional[str] = None
+    try:
+        executor = RSConnectExecutor(
+            ctx=None,
+            name=server_name,
+            url=server,
+            api_key=api_key,
+            insecure=insecure,
+            cacert=cacert,
+        )
+        executor.setup_client()
+
+        client = executor.client
+        content = client.content_create(_content_name(path, job_name))
+        content_guid = content.get("guid") if isinstance(content, dict) else None
+        content_url = content.get("content_url") if isinstance(content, dict) else None
+        if not isinstance(content_guid, str) or not content_guid:
+            raise click.ClickException("Connect returned no content GUID.")
+        if not isinstance(content_url, str) or not content_url:
+            raise click.ClickException("Connect returned no content URL.")
+
+        bundle = _build_bundle(path, program_args, runtime)
+        uploaded = client.upload_bundle(content_guid, bundle)
+        bundle_id = uploaded.get("id") if isinstance(uploaded, dict) else None
+        if not isinstance(bundle_id, str) or not bundle_id:
+            raise click.ClickException("Connect returned no bundle ID.")
+
+        deployment = client.content_deploy(content_guid, bundle_id=bundle_id)
+        _wait_for_deployment(client, deployment)
+
+        if detach:
+            click.echo(content_url)
+            return
+
+        response = _content_response(client, content_url)
+        _emit_response(response)
+        if response.exception:
+            raise click.ClickException(f"running content failed: {response.exception}")
+        if not 200 <= response.status < 300:
+            raise click.exceptions.Exit(1)
+    except RSConnectException as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        if content_guid and not detach and executor is not None:
+            try:
+                _delete_content(executor.client, content_guid)
+            except Exception as exc:
+                click.echo(
+                    f"Warning: unable to delete temporary content {content_guid}: {exc}",
+                    err=True,
+                )
