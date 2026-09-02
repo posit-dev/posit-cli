@@ -1,5 +1,9 @@
 # posit-cli task runner. Run `just --list` to see recipes.
 
+# Sync project and development dependencies into the project environment
+deps:
+    uv sync --all-extras
+
 # Run the test suite against a single Python version (default 3.13)
 test py="3.13":
     uv run --python {{py}} --extra test pytest tests
@@ -25,9 +29,17 @@ smoke:
     WHL=$(ls -t dist/*.whl | head -1)
     uv run --no-project --with "$WHL" posit --help
 
-# Install the most recently built wheel into the active environment
+# Install the most recently built wheel as a standalone uv tool
 install: build
-    uv pip install "$(ls -t dist/*.whl | head -1)"
+    uv tool install --force "$(ls -t dist/*.whl | head -1)"
+
+# Install the project as an editable standalone uv tool
+dev:
+    uv tool install --editable --force .
+
+# Remove the installed standalone uv tool
+uninstall:
+    uv tool uninstall posit-cli
 
 # Print the version that a build gets from the current git state
 version:
