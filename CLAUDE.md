@@ -1,5 +1,7 @@
 # posit-cli
 
+@AGENTS.md
+
 A single, friendly CLI — `posit` — for working with Posit Connect, in the spirit of
 [`gh`](https://cli.github.com/). Distribution name `posit-cli`, import package `posit_cli`,
 executable `posit`.

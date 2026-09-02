@@ -24,7 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - "3.8"
           - "3.9"
           - "3.10"
           - "3.11"
@@ -38,6 +37,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: extractions/setup-just@v4
       - run: just test ${{ matrix.python-version }}
+
+  integration:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --python 3.13 --extra test
+      - name: Test publish setup and deployment against Posit Connect
+        uses: posit-dev/with-connect@main
+        with:
+          version: release
+          license: ${{ secrets.CONNECT_LICENSE_FILE }}
+          command: uv run --no-sync pytest -m integration -vv tests/integration
 
   build:
     runs-on: ubuntu-latest

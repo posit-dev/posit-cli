@@ -5,12 +5,15 @@ A friendly command-line interface for Posit products, in the spirit of [`gh`](ht
 ```console
 $ posit connect login https://connect.example.com             # OAuth, tokens in your OS keyring
 $ posit connect api v1/user -q .username                      # gh-api-style raw request
-$ posit connect deploy streamlit ./my-app                     # everything rsconnect can do
+$ posit connect publish . --server https://connect.example.com
+$ posit connect publish . --init                              # configure without publishing
 ```
 
 This project is in early-stage development and so far only supports Posit Connect's APIs.
 
 ## Installation
+
+`posit-cli` requires Python 3.9 or newer.
 
 Install [`posit-cli` from PyPI](https://pypi.org/project/posit-cli/) with
 [`uv`](https://docs.astral.sh/uv/):
@@ -53,13 +56,26 @@ $ posit connect login https://connect.example.com
 $ posit connect api v1/user -q .username
 ```
 
-**3. Deploy something.** Anything `rsconnect` can deploy, `posit` can too:
+**3. Publish.** Run the command from your project directory:
 
 ```console
-$ posit connect deploy streamlit ./my-app
+$ cd my-app
+$ posit connect publish . --server https://connect.example.com
 ```
 
-That's it — from here, explore `posit connect --help` for the full command set.
+If the project has not been configured yet, an interactive terminal opens the
+setup wizard before continuing with the publish. The generated
+`.posit/publish` configuration is reused on later runs.
+
+The server is needed only for the first publish. Later publishes reuse the
+saved deployment record:
+
+```console
+$ posit connect publish .
+```
+
+Anything `rsconnect` can deploy remains available under `posit connect deploy`.
+Explore `posit connect --help` for the full command set.
 
 ## Authentication
 
@@ -113,6 +129,40 @@ $ posit connect api "v1/users?page_size=5"   # query params in the path
 $ posit connect api v1/users -X GET -f page_size=5          # or force GET
 $ posit connect api v1/content -f name=my-app              # POST body (creates content)
 ```
+
+## `posit connect publish`
+
+`posit connect publish` is the main workflow. On a fresh project it opens a
+Questionary-powered setup wizard in an interactive terminal and then publishes
+the content:
+
+```console
+$ posit connect publish . --server https://connect.example.com
+```
+
+Use `--init` when you want to configure the project without publishing it:
+
+```console
+$ posit connect publish . --init
+$ posit connect publish . --init --type python-fastapi --entrypoint app.py --title "Sales API"
+```
+
+Fresh projects do not prompt when stdin is non-interactive. Automation should
+run `publish --init` with `--type` and `--entrypoint` first; Quarto content also
+requires `--quarto-version`.
+
+Configured projects can publish to a URL or saved server name:
+
+```console
+$ posit connect publish . --server https://connect.example.com
+$ posit connect publish . --name production
+$ posit connect publish . --config sales-api
+$ posit connect publish . --deployment production
+```
+
+`--config` selects an exact `.posit/publish` configuration and `--deployment`
+selects an exact deployment record. Successful publishes print the content URL
+to stdout.
 
 ## `posit connect *`
 
