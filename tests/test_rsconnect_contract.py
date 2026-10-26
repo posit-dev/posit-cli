@@ -17,6 +17,7 @@ def test_executor_surface():
         assert expected in params, f"RSConnectExecutor lost __init__ param {expected!r}"
 
     assert hasattr(RSConnectClient, "request")
+    assert callable(getattr(RSConnectClient, "server_version", None))
     req_params = inspect.signature(RSConnectClient.request).parameters
     for expected in ("method", "path", "query_params", "body", "headers"):
         assert expected in req_params, f"RSConnectClient.request lost {expected!r}"
