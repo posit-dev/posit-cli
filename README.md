@@ -114,10 +114,27 @@ $ posit connect api v1/users -X GET -f page_size=5          # or force GET
 $ posit connect api v1/content -f name=my-app              # POST body (creates content)
 ```
 
+## `posit connect version`
+
+Print the Connect server version using your saved credentials:
+
+```console
+$ posit connect version
+$ posit connect version --name production
+$ posit connect version --server https://connect.example.com --api-key "$CONNECT_API_KEY"
+```
+
+The command supports `-n`/`--name`, `-s`/`--server`, `-k`/`--api-key`,
+`--no-tls-verify`, and `-c`/`--cacert`, with the same connection environment
+variables as `posit connect api`. It prints an empty line if the server hides
+its version. Rsconnect's `CONNECT_SERVER_VERSION` environment variable overrides
+the reported version.
+
 ## `posit connect *`
 
 `posit` wraps [`rsconnect-python`](https://github.com/posit-dev/rsconnect-python):
 it re-exposes the full `rsconnect` command set under `posit connect`, in addition to the `api` utility.
+The `version` command is overridden to report the Connect server version.
 
 ## Using `posit` with Claude Code
 
