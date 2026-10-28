@@ -37,6 +37,22 @@ Each of these puts the `posit` executable on your `PATH`. To upgrade later, run
 [Git authentication docs](https://docs.astral.sh/uv/concepts/authentication/git/)
 for tokens and other hosts.
 
+### Connect on Snowflake
+
+To deploy to Posit Connect on Snowflake, install the Snowflake extra instead:
+
+```console
+uv tool install 'posit-cli[snowflake]'
+# or: pip install 'posit-cli[snowflake]'
+```
+
+This includes the Snowflake CLI. Before deploying, configure a
+[Snowflake CLI connection](https://docs.snowflake.com/en/developer-guide/snowflake-cli/connecting/configure-connections)
+with access to your Connect instance and `authenticator` set to `snowflake_jwt`
+(key-pair authentication) or `oauth`. Select it with
+`--snowflake-connection-name` when adding the Connect server with
+`posit connect add`; see `posit connect add --help` for options.
+
 ## Getting started
 
 **1. Log in.** Point `posit` at your Connect server and authenticate. This runs
