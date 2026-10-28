@@ -25,6 +25,7 @@ dependencies = [
 posit = "posit_cli.__main__:cli"
 
 [project.optional-dependencies]
+snowflake = ["rsconnect-python[snowflake]"]
 test = ["pytest>=7"]
 lint = ["ruff>=0.6"]
 
