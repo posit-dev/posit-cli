@@ -175,6 +175,11 @@ posit connect deploy quarto ./report
 posit connect deploy manifest ./manifest.json   # deploy a prepared bundle
 ```
 
+To update existing Connect content instead of creating new content, pass its
+GUID with `--guid <guid>`. Numeric Connect content IDs no longer work; use
+`posit connect api v1/content -q '.[] | "\(.guid)  \(.title)"'` to find the GUID.
+(`--app-id` is for Connect Cloud and shinyapps.io.)
+
 Available deploy targets include `api`, `bokeh`, `bundle`, `dash`, `fastapi`,
 `flask`, `gradio`, `html`, `manifest`, `nodejs`, `notebook`, `panel`, `pyproject`,
 `quarto`, `shiny`, `streamlit`, `tensorflow`, `voila`. Use `quickstart` to
@@ -191,6 +196,8 @@ These are rsconnect commands — run `posit connect <command> --help` for detail
 - `add` / `list` / `remove` / `details` / `info` — manage saved servers and
   deployment metadata.
 - `login` / `logout` — OAuth credential management.
+- `token` — print the OAuth access token from `login` (for the Connect SDKs or
+  `curl`). `--refresh` gets a new one after a 401; exit status 4 means log in again.
 - `bootstrap` — create an initial admin user on a fresh Connect instance.
 
 ## When something fails
