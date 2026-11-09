@@ -176,8 +176,8 @@ posit connect deploy manifest ./manifest.json   # deploy a prepared bundle
 ```
 
 To update existing Connect content instead of creating new content, pass its
-GUID with `--guid <guid>`. Numeric Connect content IDs no longer work; use
-`posit connect api v1/content -q '.[] | "\(.guid)  \(.title)"'` to find the GUID.
+GUID with `--guid <guid>`. Find the GUID with
+`posit connect api v1/content -q '.[] | "\(.guid)  \(.title)"'`.
 (`--app-id` is for Connect Cloud and shinyapps.io.)
 
 Available deploy targets include `api`, `bokeh`, `bundle`, `dash`, `fastapi`,
