@@ -1551,7 +1551,7 @@ requires-dist = [
     { name = "jq", specifier = ">=1.4" },
     { name = "keyring", specifier = ">=23.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7" },
-    { name = "rsconnect-python", specifier = ">=1.30,<2" },
+    { name = "rsconnect-python", specifier = ">=1.33,<2" },
     { name = "rsconnect-python", extras = ["snowflake"], marker = "extra == 'snowflake'" },
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.6" },
 ]
@@ -2327,7 +2327,7 @@ wheels = [
 
 [[package]]
 name = "rsconnect-python"
-version = "1.32.0"
+version = "1.33.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2344,9 +2344,9 @@ dependencies = [
     { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/bd/7d3ec52d77acfb9856df0a30b6c87746cbf30c8e3f3df660def0f39be187/rsconnect_python-1.32.0.tar.gz", hash = "sha256:32694f63bbb0502a13a9505e4695eda1716b0593c3a6d0613d6dcae82ce51d9a", size = 224126, upload-time = "2026-10-16T18:36:37.383Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/f6/2accdc21a23dd52450175034e02113c643f65bbf8f3bb2ea51dfebaa317c/rsconnect_python-1.33.0.tar.gz", hash = "sha256:c1d8867ee5147c7505dc5533b03828c93b7d40092847c3f3226ae735fa4c76f0", size = 231814, upload-time = "2026-11-09T18:40:34.097Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/2a/24ad79c4970f09cd042070a344378fa8a3004abab16f56a2861802a68e8a/rsconnect_python-1.32.0-py3-none-any.whl", hash = "sha256:090f0aae6c769d561e82dd15dec6ac6c839489ddbe5199d9c26a08a5a062fa34", size = 245468, upload-time = "2026-10-16T18:36:35.934Z" },
+    { url = "https://files.pythonhosted.org/packages/20/45/7c2b33106c9c37ba52a93987231744ee8fcc4212647d0e681491f68a69d4/rsconnect_python-1.33.0-py3-none-any.whl", hash = "sha256:c8faaf5b239cd39a5873a8d6ea7fb6e3899f53d9295c8a0c1f4f91facd4a916b", size = 253425, upload-time = "2026-11-09T18:40:32.337Z" },
 ]
 
 [package.optional-dependencies]
