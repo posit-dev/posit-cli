@@ -84,6 +84,17 @@ keyring; `posit connect api` and the deploy commands reuse those credentials
 automatically (including token refresh). You can also point at a server ad hoc
 with `--server`/`CONNECT_SERVER` and `--api-key`/`CONNECT_API_KEY`.
 
+Other tools, such as the Connect SDKs or `curl`, can use the same login through
+`posit connect token`, which prints the stored access token:
+
+```console
+$ curl -H "Authorization: Bearer $(posit connect token)" https://connect.example.com/__api__/v1/user
+```
+
+If the server rejects the token, run `posit connect token --refresh` to get a
+new one. `--format json` prints machine-readable output. Exit status 4 means
+there are no usable credentials and you need to run `posit connect login` again.
+
 ## `posit connect api`
 
 A `gh api`-style raw REST client, authenticated with your saved credentials.

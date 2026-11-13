@@ -33,6 +33,7 @@ EXPECTED_RSCONNECT_COMMANDS = [
     "bootstrap",
     "login",
     "logout",
+    "token",
 ]
 
 
