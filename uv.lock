@@ -2327,7 +2327,7 @@ wheels = [
 
 [[package]]
 name = "rsconnect-python"
-version = "1.33.0"
+version = "1.33.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2344,9 +2344,9 @@ dependencies = [
     { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/f6/2accdc21a23dd52450175034e02113c643f65bbf8f3bb2ea51dfebaa317c/rsconnect_python-1.33.0.tar.gz", hash = "sha256:c1d8867ee5147c7505dc5533b03828c93b7d40092847c3f3226ae735fa4c76f0", size = 231814, upload-time = "2026-11-09T18:40:34.097Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/3b/6d5c68f42e2c631d0f8a948296e9ddffe19bc4d6851758c8253ea87d28b5/rsconnect_python-1.33.2.tar.gz", hash = "sha256:d728254e11a32570cad0b97fbbc4d78490a5d23fba4f0f741cb73f8a524d7d59", size = 231704, upload-time = "2026-11-12T14:49:56.637Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/45/7c2b33106c9c37ba52a93987231744ee8fcc4212647d0e681491f68a69d4/rsconnect_python-1.33.0-py3-none-any.whl", hash = "sha256:c8faaf5b239cd39a5873a8d6ea7fb6e3899f53d9295c8a0c1f4f91facd4a916b", size = 253425, upload-time = "2026-11-09T18:40:32.337Z" },
+    { url = "https://files.pythonhosted.org/packages/29/73/368de77b11774ee279899ab732c5ba024890b669c1339d791d45286009db/rsconnect_python-1.33.2-py3-none-any.whl", hash = "sha256:fbb0ccc1fe0fc2e531cca499369d5fbc2cfd140972c0bc7c05182d4258efba08", size = 253339, upload-time = "2026-11-12T14:49:54.93Z" },
 ]
 
 [package.optional-dependencies]
