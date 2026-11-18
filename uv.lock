@@ -1529,7 +1529,8 @@ dependencies = [
     { name = "jq" },
     { name = "keyring", version = "24.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "keyring", version = "25.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "rsconnect-python" },
+    { name = "rsconnect-python", version = "1.33.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "rsconnect-python", version = "1.34.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 
 [package.optional-dependencies]
@@ -1537,7 +1538,8 @@ lint = [
     { name = "ruff" },
 ]
 snowflake = [
-    { name = "rsconnect-python", extra = ["snowflake"] },
+    { name = "rsconnect-python", version = "1.33.2", source = { registry = "https://pypi.org/simple" }, extra = ["snowflake"], marker = "python_full_version < '3.11'" },
+    { name = "rsconnect-python", version = "1.34.0", source = { registry = "https://pypi.org/simple" }, extra = ["snowflake"], marker = "python_full_version >= '3.11'" },
 ]
 test = [
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -2329,19 +2331,25 @@ wheels = [
 name = "rsconnect-python"
 version = "1.33.2"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.10.*'",
+    "python_full_version > '3.9' and python_full_version < '3.10'",
+    "python_full_version == '3.9'",
+    "python_full_version < '3.9'",
+]
 dependencies = [
     { name = "click" },
-    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "packaging", version = "26.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "pip", version = "25.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "packaging", version = "26.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.10.*'" },
+    { name = "pip", version = "25.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9' or python_full_version >= '3.11'" },
     { name = "pip", version = "26.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
-    { name = "pip", version = "26.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "pyjwt", version = "2.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "pyjwt", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "pip", version = "26.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "pyjwt", version = "2.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9' or python_full_version >= '3.11'" },
+    { name = "pyjwt", version = "2.15.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
     { name = "semver" },
-    { name = "toml", marker = "python_full_version < '3.11'" },
-    { name = "typing-extensions", version = "4.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "toml" },
+    { name = "typing-extensions", version = "4.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9' or python_full_version >= '3.11'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
     { name = "uv" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/2e/3b/6d5c68f42e2c631d0f8a948296e9ddffe19bc4d6851758c8253ea87d28b5/rsconnect_python-1.33.2.tar.gz", hash = "sha256:d728254e11a32570cad0b97fbbc4d78490a5d23fba4f0f741cb73f8a524d7d59", size = 231704, upload-time = "2026-11-12T14:49:56.637Z" }
@@ -2351,8 +2359,34 @@ wheels = [
 
 [package.optional-dependencies]
 snowflake = [
-    { name = "snowflake-cli", version = "2.8.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "snowflake-cli", version = "3.24.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "snowflake-cli", version = "2.8.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.10.*'" },
+    { name = "snowflake-cli", version = "3.24.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+]
+
+[[package]]
+name = "rsconnect-python"
+version = "1.34.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14'",
+    "python_full_version >= '3.11' and python_full_version < '3.14'",
+]
+dependencies = [
+    { name = "click" },
+    { name = "packaging", version = "25.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "pip", version = "26.1.2", source = { registry = "https://pypi.org/simple" } },
+    { name = "pyjwt", version = "2.15.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "semver" },
+    { name = "uv" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/6c/b4a647dccae05143b7680d6aa12b766a4fb960dcb58e80141b6fcf0e518a/rsconnect_python-1.34.0.tar.gz", hash = "sha256:1314caa305f0a89af60809e2c2bfef45d74e280d23fe871eee8228cd293b86a5", size = 231265, upload-time = "2026-11-18T19:28:33.895Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/d0/9b54e6c8e241058dddae0cc6fbd870eae47a3b63b81dbc1c2d8935c4f52a/rsconnect_python-1.34.0-py3-none-any.whl", hash = "sha256:a7a8b33a986307062e11c0f5c437cf566242667661989cb68e8a0fcb93a78cbb", size = 252900, upload-time = "2026-11-18T19:28:32.45Z" },
+]
+
+[package.optional-dependencies]
+snowflake = [
+    { name = "snowflake-cli", version = "3.24.1", source = { registry = "https://pypi.org/simple" } },
 ]
 
 [[package]]
