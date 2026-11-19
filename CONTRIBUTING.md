@@ -7,11 +7,11 @@ This guide covers local development for `posit-cli`. End-user installation and C
 Install these tools before starting:
 
 - Git
-- Python 3.8 or newer
+- Python 3.11 or newer
 - [uv](https://docs.astral.sh/uv/)
 - [just](https://github.com/casey/just)
 
-The project uses uv for dependency management and virtual environments. The supported Python versions are 3.8 through 3.14, which are tested in CI.
+The project uses uv for dependency management and virtual environments. The supported Python versions are 3.11 through 3.14, which are tested in CI. posit-cli follows rsconnect-python's [Python support policy](https://github.com/posit-dev/rsconnect-python/blob/main/docs/adr/0001-support-only-non-eol-python.md): it supports only Python versions that haven't reached end-of-life, and drops each one in the next minor release after its EOL date.
 
 ## Set Up
 
@@ -48,7 +48,7 @@ Run these commands from the repository root:
 | `just deps` | Sync runtime, test, and lint dependencies from `uv.lock`. |
 | `just dev` | Install the checkout as an editable uv tool. |
 | `just test` | Run tests against Python 3.13. |
-| `just test 3.8` | Run tests against a specific Python version. |
+| `just test 3.12` | Run tests against a specific Python version. |
 | `just lint` | Check formatting and run Ruff. |
 | `just fmt` | Format files and apply Ruff fixes. |
 | `just build` | Build the wheel and source distribution in `dist/`. |
@@ -82,7 +82,7 @@ just build
 just smoke
 ```
 
-CI also runs the test suite against Python 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, and 3.14. Add or update tests when changing behavior, and update user-facing documentation in `README.md` when the CLI changes.
+CI also runs the test suite against Python 3.11, 3.12, 3.13, and 3.14. Add or update tests when changing behavior, and update user-facing documentation in `README.md` when the CLI changes.
 
 Keep commits focused and use Conventional Commit messages, such as `fix: handle expired Connect tokens` or `docs: clarify local setup`.
 

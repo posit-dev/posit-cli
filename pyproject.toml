@@ -4,7 +4,7 @@ name = "posit-cli"
 dynamic = ["version"]
 description = "A single, friendly command-line interface for Posit Connect, in the spirit of gh."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Posit Software, PBC" }]
@@ -12,7 +12,7 @@ dependencies = [
     # posit-cli reuses rsconnect-python's *internal* API (RSConnectExecutor,
     # RSConnectClient). These have no stability contract, so re-verify the internals
     # on bumps. See tests/test_rsconnect_contract.py.
-    "rsconnect-python>=1.33,<2",
+    "rsconnect-python>=1.34,<2",
     # rsconnect imports `keyring` optionally; we depend on it directly so OAuth
     # tokens land in the OS keyring.
     "keyring>=23.0",
