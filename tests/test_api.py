@@ -256,21 +256,17 @@ def test_include_on_error_still_exits_nonzero(runner):
     assert "nope" in result.output
 
 
-def test_include_jq_runtime_error_leaks_nothing_to_stdout(runner):
-    # A jq runtime failure on a 2xx response must abort before emitting headers,
-    # so a failed command never leaks partial output (headers) to stdout.
+def test_include_jq_runtime_error_leaks_nothing_to_stdout(capsys):
     resp = _http_response(status=200, reason="OK", body=json.dumps({"username": "neal"}))
     with patch("posit_cli.connect.api.RSConnectExecutor") as Executor:
-        ce = Executor.return_value
-        ce.client.request.return_value = resp
-        result = runner.invoke(cli, ["connect", "api", "v1/user", "-i", "-q", 'error("boom")'])
-    assert result.exit_code != 0
-    # Checked against combined output, not result.stdout/.stderr separately:
-    # Click's CliRunner only captures those on separate streams in >=8.2, and
-    # we allow click>=8.0.
-    assert "HTTP/" not in result.output  # no header lines leaked
-    assert "neal" not in result.output  # no body leaked
-    assert "jq: boom" in result.output
+        Executor.return_value.client.request.return_value = resp
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["connect", "api", "v1/user", "-i", "-q", 'error("boom")'], prog_name="posit")
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 1
+    assert captured.out == ""
+    assert captured.err == "Error: jq: boom\n"
 
 
 def _paginated_invoke(runner, args, pages):
