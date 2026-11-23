@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - uses: extractions/setup-just@v4
       # Fail fast if uv.lock has drifted from pyproject.toml.
       - run: uv lock --locked
@@ -30,7 +30,7 @@ jobs:
           - "3.14"
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: ${{ matrix.python-version }}
       - uses: extractions/setup-just@v4
@@ -43,7 +43,7 @@ jobs:
         # hatch-vcs reads the version from the tags, so fetch them.
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - uses: extractions/setup-just@v4
       - run: just build
       - run: just smoke
