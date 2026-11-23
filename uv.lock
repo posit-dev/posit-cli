@@ -1116,7 +1116,7 @@ wheels = [
 
 [[package]]
 name = "rsconnect-python"
-version = "1.34.0"
+version = "1.34.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1126,9 +1126,9 @@ dependencies = [
     { name = "semver" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/6c/b4a647dccae05143b7680d6aa12b766a4fb960dcb58e80141b6fcf0e518a/rsconnect_python-1.34.0.tar.gz", hash = "sha256:1314caa305f0a89af60809e2c2bfef45d74e280d23fe871eee8228cd293b86a5", size = 231265, upload-time = "2026-11-18T19:28:33.895Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/f5/a0c991399ab4a27c46f5d2ac7d2bb1241c4bbf6e23edb3c7c6938dc4c961/rsconnect_python-1.34.1.tar.gz", hash = "sha256:d6a85750294c653518d3f7eae2007dc0a216d440d9b47836549e424e61aaeacb", size = 231266, upload-time = "2026-11-19T17:24:38.338Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/d0/9b54e6c8e241058dddae0cc6fbd870eae47a3b63b81dbc1c2d8935c4f52a/rsconnect_python-1.34.0-py3-none-any.whl", hash = "sha256:a7a8b33a986307062e11c0f5c437cf566242667661989cb68e8a0fcb93a78cbb", size = 252900, upload-time = "2026-11-18T19:28:32.45Z" },
+    { url = "https://files.pythonhosted.org/packages/74/0b/8c61002f1e227124048080f7647ffe5b2eb372bc85196e3cf755e3e83c61/rsconnect_python-1.34.1-py3-none-any.whl", hash = "sha256:d20fc9f1d913cd2d34de41a9911ee99a201e6681923865477c2d59fce26181da", size = 252919, upload-time = "2026-11-19T17:24:36.683Z" },
 ]
 
 [package.optional-dependencies]
